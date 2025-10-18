@@ -147,10 +147,10 @@ export async function getTransactionSummary(from?: Date, to?: Date): Promise<Tra
     total: transactions.length,
     incoming: transactions.filter(t => t.type === 'in').length,
     outgoing: transactions.filter(t => t.type === 'out').length,
-    byProduct: groupBy(transactions, t => t.productId),
-    byWorker: groupBy(transactions, t => t.workerId),
-    bySupplier: groupBy(transactions, t => t.supplierId),
-    byDestination: groupBy(transactions, t => t.destinationId),
+    byProduct: groupBy(transactions.filter(t => t.productId !== null), t => t.productId!),
+    byWorker: groupBy(transactions.filter(t => t.workerId !== null), t => t.workerId!),
+    bySupplier: groupBy(transactions.filter(t => t.supplierId !== null), t => t.supplierId!),
+    byDestination: groupBy(transactions.filter(t => t.destinationId !== null), t => t.destinationId!),
     daily: sortedDaily
   }
 }
