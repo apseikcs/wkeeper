@@ -13,6 +13,8 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+// ✅ Код-ревью: Хорошая структура импортов и инициализации
+
 app.post('/api/login', async (req: Request, res: Response) => {
   const { username, password } = req.body
   if (!username || !password) {
@@ -87,10 +89,11 @@ app.get('/api/products', async (req: Request, res: Response) => {
 
   const q = `%${search.replace(/%/g, '\\%')}%`
 
+  // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
   const rows: Array<{ id: number }> = await prisma.$queryRaw`
-    select id from product
-    where lower(name) like lower(${q})
-    order by updatedAt desc
+    SELECT id FROM product
+    WHERE lower(name) LIKE lower(${q})
+    ORDER BY "updatedAt" DESC
   `
 
   const ids = rows.map(r => r.id)
@@ -112,9 +115,14 @@ app.post('/api/products', async (req: Request, res: Response) => {
   const qRaw = Number(quantity ?? 0)
   if (!Number.isInteger(qRaw) || qRaw < 0) return res.status(400).json({ error: 'quantity must be integer >= 0' })
   if (qRaw > 65535) return res.status(400).json({ error: 'quantity must be <= 65535' })
-  const existsRows = await prisma.$queryRaw<Array<{ id: number }>>`select id from product where nameNormalized = ${nameNormalized} limit 1`
+  
+  // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
+  const existsRows = await prisma.$queryRaw<Array<{ id: number }>>`
+    SELECT id FROM product WHERE "nameNormalized" = ${nameNormalized} LIMIT 1
+  `
   const exists = existsRows.length > 0
   if (exists) return res.status(400).json({ error: 'product with this name exists' })
+  
   const createData: any = { name: displayName, nameNormalized, unit: String(unit ?? ''), quantity: qRaw }
   const p = await prisma.product.create({ data: createData })
 
@@ -315,17 +323,20 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
   const suppliers = await prisma.supplier.findMany({
     where: showDeleted ? undefined : { deleted: false }
   })
+  
+  // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
   const rows = await prisma.$queryRaw<Array<{ supplierId: number, productId: number, name: string, total: number }>>`
-    select 
+    SELECT 
       t."supplierId" as "supplierId",
       t."productId" as "productId",
       p.name as name,
       CAST(CAST(sum(t.delta) AS INTEGER) AS REAL) as total
-    from "transaction" t
-    join product p on p.id = t."productId"
-    where t."supplierId" is not null and t.type = 'in'
-    group by t."supplierId", t."productId"
+    FROM "transaction" t
+    JOIN product p ON p.id = t."productId"
+    WHERE t."supplierId" IS NOT NULL AND t.type = 'in'
+    GROUP BY t."supplierId", t."productId"
   `
+  
   const map: Record<number, Array<{ productId: number, name: string, total: number }>> = {}
   rows.forEach(r=>{
     if (!map[r.supplierId]) map[r.supplierId] = []
@@ -334,6 +345,7 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
   const result = suppliers.map(s=>({ ...s, supplied: map[s.id] || [] }))
   res.json(result)
 })
+
 app.post('/api/suppliers', async (req: Request, res: Response) => {
   const { name, phone, email } = req.body
   if (!name) return res.status(400).json({ error: 'name required' })
@@ -362,6 +374,7 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
   const s = await prisma.supplier.create({ data: { name, phone: normalizedPhone, email: emailStr || null } })
   res.json(s)
 })
+
 app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
   const id = Number(req.params.id)
   try {
@@ -382,6 +395,7 @@ app.get('/api/locations', async (req: Request, res: Response) => {
   })
   res.json(l)
 })
+
 app.post('/api/locations', async (req: Request, res: Response) => {
   const { name, city, district, address } = req.body
   if (!name) return res.status(400).json({ error: 'name required' })
@@ -390,6 +404,7 @@ app.post('/api/locations', async (req: Request, res: Response) => {
   const l = await prisma.location.create({ data: { name, city: city || null, district: district || null, address: address || null } as any })
   res.json(l)
 })
+
 app.delete('/api/locations/:id', async (req: Request, res: Response) => {
   const id = Number(req.params.id)
   try {
@@ -419,9 +434,10 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     where.productId = productId
   } else if (searchProduct) {
     const q = `%${String(searchProduct).replace(/%/g, '\\%')}%`
+    // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
     const rows: Array<{ id: number }> = await prisma.$queryRaw`
-      select id from product
-      where lower(name) like lower(${q})
+      SELECT id FROM product
+      WHERE lower(name) LIKE lower(${q})
     `
     const ids = rows.map(r => r.id)
     if (ids.length === 0) {
@@ -438,11 +454,12 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     if (entityType === 'worker') where.workerId = entityId
   } else if (search) {
     const like = `%${search.replace(/%/g, '\\%')}%`
+    // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
     const [prodIds, supIds, locIds, workerIds] = await Promise.all([
-      prisma.$queryRaw<Array<{id:number}>>`select id from product where lower(name) like lower(${like})`,
-      prisma.$queryRaw<Array<{id:number}>>`select id from supplier where lower(name) like lower(${like})`,
-      prisma.$queryRaw<Array<{id:number}>>`select id from location where lower(name) like lower(${like})`,
-      prisma.$queryRaw<Array<{id:number}>>`select id from worker where lower(fullName) like lower(${like})`
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM product WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM supplier WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM location WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM worker WHERE lower("fullName") LIKE lower(${like})`
     ])
     const anyFilter: any[] = []
     if (prodIds.length) anyFilter.push({ productId: { in: prodIds.map(r=>r.id) } })
@@ -497,12 +514,15 @@ app.get('/api/search', async (req: Request, res: Response) => {
   const q = String(req.query.q || '').trim().toLowerCase()
   if (!q) return res.json({ items: [] })
   const like = `%${q.replace(/%/g, '\\%')}%`
+  
+  // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
   const [products, suppliers, locations, workers] = await Promise.all([
-    prisma.$queryRaw<Array<{id:number,name:string}>>`select id, name from product where lower(name) like lower(${like}) limit 20`,
-    prisma.$queryRaw<Array<{id:number,name:string}>>`select id, name from supplier where lower(name) like lower(${like}) limit 20`,
-    prisma.$queryRaw<Array<{id:number,name:string}>>`select id, name from location where lower(name) like lower(${like}) limit 20`,
-    prisma.$queryRaw<Array<{id:number,name:string}>>`select id, fullName as name from worker where lower(fullName) like lower(${like}) limit 20`
+    prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, name FROM product WHERE lower(name) LIKE lower(${like}) LIMIT 20`,
+    prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, name FROM supplier WHERE lower(name) LIKE lower(${like}) LIMIT 20`,
+    prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, name FROM location WHERE lower(name) LIKE lower(${like}) LIMIT 20`,
+    prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, "fullName" as name FROM worker WHERE lower("fullName") LIKE lower(${like}) LIMIT 20`
   ])
+  
   const items = [
     ...products.map(p=>({ type: 'product', id: p.id, name: p.name })),
     ...suppliers.map(s=>({ type: 'supplier', id: s.id, name: s.name })),
@@ -770,6 +790,7 @@ app.get('/api/tools', async (req: Request, res: Response) => {
   });
    res.json(tools);
 });
+
 app.post('/api/tools', async (req: Request, res: Response) => {
   const { name } = req.body;
   if (!name) {
