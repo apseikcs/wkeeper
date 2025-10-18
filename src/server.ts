@@ -324,7 +324,6 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
     where: showDeleted ? undefined : { deleted: false }
   })
   
-  // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
   const rows = await prisma.$queryRaw<Array<{ supplierId: number, productId: number, name: string, total: number }>>`
     SELECT 
       t."supplierId" as "supplierId",
@@ -334,7 +333,7 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
     FROM "transaction" t
     JOIN product p ON p.id = t."productId"
     WHERE t."supplierId" IS NOT NULL AND t.type = 'in'
-    GROUP BY t."supplierId", t."productId"
+    GROUP BY t."supplierId", t."productId", p.name
   `
   
   const map: Record<number, Array<{ productId: number, name: string, total: number }>> = {}
