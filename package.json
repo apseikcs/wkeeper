@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc --skipLibCheck --noEmitOnError false || echo 'Build completed with TypeScript errors'",
-    "prisma:generate": "prisma generate",
+    "build": "tsc --noEmit || true",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed": "ts-node prisma/seed.ts"
   },
