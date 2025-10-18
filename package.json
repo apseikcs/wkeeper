@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc --noEmit || true",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "build": "prisma generate && tsc --skipLibCheck",
+    "start": "node dist/server.js",
+    "vercel-build": "prisma generate && tsc --skipLibCheck",
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
