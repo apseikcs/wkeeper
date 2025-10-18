@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Поставщики</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/suppliers.css">
+  </style>
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header">
+      <div>
+        <h1 class="wk-page-title">Управление поставщиками</h1>
+        <p class="wk-text-muted">Добавление и редактирование информации о поставщиках</p>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
+    </header>
+
+    <nav class="wk-flex wk-flex-wrap wk-gap-2 wk-mb-6">
+      <a href="index.html" class="wk-btn wk-btn-secondary">Склад</a>
+      <a href="transactions.html" class="wk-btn wk-btn-secondary">Проводки</a>
+      <a href="reports.html" class="wk-btn wk-btn-secondary">Отчёты</a>
+      <a href="workers.html" class="wk-btn wk-btn-secondary">Сотрудники</a>
+      <a href="suppliers.html" class="wk-btn wk-btn-primary">Поставщики</a>
+      <a href="destinations.html" class="wk-btn wk-btn-secondary">Объекты</a>
+      <button id="addBtn" class="wk-btn wk-btn-primary wk-ml-auto wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
+        Добавить поставщика
+      </button>
+    </nav>
+
+    <main>
+      <div id="loading" class="wk-flex wk-justify-center wk-items-center wk-p-8">
+        <div class="wk-loading-spinner"></div>
+        <span class="wk-ml-2">Загрузка данных...</span>
+      </div>
+
+      <div id="list" class="wk-grid wk-grid-cols-1 md:wk-grid-cols-2 lg:wk-grid-cols-3 wk-gap-4 wk-hidden">
+      </div>
+
+      <div id="emptyState" class="wk-card wk-text-center wk-hidden">
+        <div class="wk-mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 wk-mx-auto wk-text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-4m-6 0H5m2 0h4M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+        </div>
+        <h3 class="wk-text-lg wk-font-medium wk-text-gray-700 wk-mb-2">Нет поставщиков</h3>
+        <p class="wk-text-gray-500 wk-mb-4">Добавьте первого поставщика, нажав на кнопку выше</p>
+        <button id="addFirstBtn" class="wk-btn wk-btn-primary">Добавить поставщика</button>
+      </div>
+    </main>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <div id="notificationContainer" class="notification-container"></div>
+
+  <script src="auth.js"></script>
+  <script>
+    let suppliers = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      load();
+    });
+
+    function setupEventListeners() {
+      document.getElementById('addBtn').addEventListener('click', () => openSupplierModal());
+      document.getElementById('addFirstBtn').addEventListener('click', () => openSupplierModal());
+      document.getElementById('logoutBtn').addEventListener('click', logout);
+    }
+
+    async function fetchSuppliers() {
+      try {
+        showLoading(true);
+        const response = await authFetch('/api/suppliers');
+        if (!response.ok) {
+          throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
+        }
+        return await response.json();
+      } catch (error) {
+        console.error('Ошибка при загрузке поставщиков:', error);
+        showError('Не удалось загрузить список поставщиков');
+        return [];
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function showLoading(show) {
+      const loadingEl = document.getElementById('loading');
+      const listEl = document.getElementById('list');
+      const emptyStateEl = document.getElementById('emptyState');
+      
+      if (show) {
+        loadingEl.classList.remove('wk-hidden');
+        listEl.classList.add('wk-hidden');
+        emptyStateEl.classList.add('wk-hidden');
+      } else {
+        loadingEl.classList.add('wk-hidden');
+      }
+    }
+
+    function showError(message) {
+      const container = document.getElementById('notificationContainer');
+      const notification = document.createElement('div');
+      notification.className = 'notification wk-alert wk-alert-error';
+      notification.innerHTML = `
+        <div class="wk-flex wk-justify-between wk-items-start">
+          <div class="wk-flex-1">
+            <strong class="wk-font-bold">Ошибка! </strong>
+            <span class="wk-block sm:wk-inline">${escapeHtml(message)}</span>
+          </div>
+          <button type="button" class="wk-ml-4 wk-text-red-700 hover:wk-text-red-900" onclick="this.parentElement.parentElement.remove()">
+            <span class="wk-text-xl">&times;</span>
+          </button>
+        </div>
+      `;
+      
+      container.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification && notification.parentNode) {
+          notification.remove();
+        }
+      }, 5000);
+    }
+
+    function showSuccess(message) {
+      const container = document.getElementById('notificationContainer');
+      const notification = document.createElement('div');
+      notification.className = 'notification wk-alert wk-alert-success';
+      notification.innerHTML = `
+        <div class="wk-flex wk-justify-between wk-items-start">
+          <div class="wk-flex wk-items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 wk-mr-2" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span>${escapeHtml(message)}</span>
+          </div>
+          <button type="button" class="wk-ml-4 wk-text-green-700 hover:wk-text-green-900" onclick="this.parentElement.parentElement.remove()">
+            <span class="wk-text-xl">&times;</span>
+          </button>
+        </div>
+      `;
+      
+      container.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification && notification.parentNode) {
+          notification.remove();
+        }
+      }, 5000);
+    }
+
+    function renderSuppliers(suppliersList) {
+      const root = document.getElementById('list');
+      const emptyState = document.getElementById('emptyState');
+      
+      const activeSuppliers = suppliersList.filter(supplier => !supplier.deleted);
+      
+      if (activeSuppliers.length === 0) {
+        root.classList.add('wk-hidden');
+        emptyState.classList.remove('wk-hidden');
+        return;
+      }
+      
+      emptyState.classList.add('wk-hidden');
+      root.classList.remove('wk-hidden');
+      root.innerHTML = '';
+      
+      activeSuppliers.forEach(supplier => {
+        const div = document.createElement('div');
+        div.className = 'wk-card card-fade-in';
+        
+        const suppliedProducts = (supplier.supplied || [])
+          .map(item => `${escapeHtml(item.name)} (${item.total})`)
+          .join(', ') || '—';
+        
+        div.innerHTML = `
+          <div class="wk-flex wk-items-center wk-justify-between wk-mb-2">
+            <div class="wk-font-semibold wk-text-lg wk-text-gray-900">${escapeHtml(supplier.name)}</div>
+            <div class="wk-flex wk-items-center wk-gap-2">
+              <span class="wk-badge wk-badge-primary">#${supplier.id}</span>
+              <button class="wk-text-gray-400 hover:wk-text-red-500 wk-transition-colors" 
+                      data-id="${supplier.id}" aria-label="Удалить поставщика">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="wk-mb-3">
+            <div class="wk-text-sm wk-text-gray-700 wk-mb-1 wk-flex wk-items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 wk-mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              <span>${supplier.phone ? escapeHtml(supplier.phone) : 'Не указан'}</span>
+            </div>
+            
+            <div class="wk-text-sm wk-text-gray-700 wk-flex wk-items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 wk-mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span>${supplier.email ? escapeHtml(supplier.email) : 'Не указан'}</span>
+            </div>
+          </div>
+          
+          <div class="wk-pt-2 wk-border-t wk-border-gray-100">
+            <div class="wk-text-sm wk-text-gray-500 wk-mb-1">Поставляемые товары:</div>
+            <div class="wk-text-sm wk-text-gray-700 line-clamp-2">${suppliedProducts}</div>
+          </div>
+        `;
+        
+        const deleteBtn = div.querySelector('button');
+        deleteBtn.addEventListener('click', () => openDeleteModal(supplier));
+        
+        root.appendChild(div);
+      });
+    }
+
+    function openSupplierModal(supplier = null) {
+      const isEdit = supplier !== null;
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-content">
+            <div class="wk-p-6">
+              <h2 class="wk-card-title wk-mb-4">${isEdit ? 'Редактирование' : 'Добавление'} поставщика</h2>
+              
+              <form id="supplierForm">
+                <input type="hidden" id="supplierId" value="${isEdit ? supplier.id : ''}">
+                
+                <div class="wk-form-group">
+                  <label for="name" class="wk-form-label">Название *</label>
+                  <input 
+                    type="text" 
+                    id="name" 
+                    name="name" 
+                    value="${isEdit ? escapeHtml(supplier.name) : ''}" 
+                    class="wk-form-input"
+                    required
+                    placeholder="Введите название компании"
+                  >
+                </div>
+                
+                <div class="wk-form-group">
+                  <label for="phone" class="wk-form-label">Телефон</label>
+                  <input 
+                    type="tel" 
+                    id="phone" 
+                    name="phone" 
+                    value="${isEdit && supplier.phone ? escapeHtml(supplier.phone) : ''}" 
+                    class="wk-form-input"
+                    placeholder="+7 (XXX) XXX-XX-XX"
+                  >
+                </div>
+                
+                <div class="wk-form-group">
+                  <label for="email" class="wk-form-label">Email</label>
+                  <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    value="${isEdit && supplier.email ? escapeHtml(supplier.email) : ''}" 
+                    class="wk-form-input"
+                    placeholder="example@mail.com"
+                  >
+                </div>
+                
+                <div class="wk-flex wk-justify-end wk-gap-3">
+                  <button type="button" id="cancelBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                  <button type="submit" class="wk-btn wk-btn-primary">${isEdit ? 'Сохранить' : 'Добавить'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      const form = document.getElementById('supplierForm');
+      form.addEventListener('submit', (e) => handleSaveSupplier(e, isEdit));
+      
+      document.getElementById('cancelBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+      
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    async function handleSaveSupplier(e, isEdit) {
+      e.preventDefault();
+      
+      const form = e.target;
+      const formData = new FormData(form);
+      const id = document.getElementById('supplierId').value;
+      
+      const payload = {
+        name: formData.get('name').trim(),
+        phone: formData.get('phone').trim() || null,
+        email: formData.get('email').trim() || null
+      };
+      
+      if (!payload.name) {
+        showError('Поле "Название" обязательно для заполнения');
+        return;
+      }
+      
+      try {
+        const url = isEdit ? `/api/suppliers/${id}` : '/api/suppliers';
+        const method = isEdit ? 'PUT' : 'POST';
+        
+        const response = await authFetch(url, {
+          method: method,
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+        }
+        
+        document.getElementById('modalRoot').innerHTML = '';
+        await load(); 
+        
+        showSuccess(`Поставщик успешно ${isEdit ? 'обновлён' : 'добавлен'}`);
+      } catch (error) {
+        console.error('Ошибка сохранения поставщика:', error);
+        showError(`Ошибка при ${isEdit ? 'сохранении' : 'добавлении'}: ${error.message}`);
+      }
+    }
+
+    function openDeleteModal(supplier) {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-content">
+            <div class="wk-p-6">
+              <h2 class="wk-card-title wk-mb-2">Подтверждение удаления</h2>
+              <p class="wk-text-gray-600 wk-mb-6">Вы уверены, что хотите удалить поставщика <strong>${escapeHtml(supplier.name)}</strong>? Поставщик будет помечен как удалённый, а история проводок сохранится.</p>
+              
+              <div class="wk-flex wk-justify-end wk-gap-3">
+                <button id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteSupplier(supplier.id));
+      document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+      
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    async function deleteSupplier(id) {
+      try {
+        const response = await authFetch(`/api/suppliers/${id}`, { 
+          method: 'DELETE' 
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+        }
+        
+        document.getElementById('modalRoot').innerHTML = '';
+        await load(); 
+        showSuccess('Поставщик успешно удалён');
+      } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showError('Ошибка при удалении: ' + error.message);
+      }
+    }
+
+    async function load() {
+      suppliers = await fetchSuppliers();
+      renderSuppliers(suppliers);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

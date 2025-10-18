@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Отчёты</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/reports.css">
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header">
+      <div class="wk-flex wk-flex-col wk-gap-3 sm:wk-flex-row sm:wk-items-center sm:wk-gap-4">
+        <h1 class="wk-page-title">Отчёты</h1>
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="index.html">Склад</a>
+          <a class="wk-nav-item" href="transactions.html">Проводки</a>
+          <a class="wk-nav-item active" href="reports.html">Отчёты</a>
+          <a class="wk-nav-item" href="workers.html">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
+          <a class="wk-nav-item" href="destinations.html">Объекты</a>
+        </nav>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4">
+        <div class="date-controls">
+          <div class="wk-flex wk-items-center wk-gap-2 wk-flex-wrap">
+            <span class="wk-font-semibold">Период отчётов:</span>
+            <label class="wk-flex wk-items-center wk-gap-1">
+              с <input type="date" id="dateFrom" class="wk-form-input">
+            </label>
+            <label class="wk-flex wk-items-center wk-gap-1">
+              по <input type="date" id="dateTo" class="wk-form-input">
+            </label>
+          </div>
+          
+          <div class="wk-flex wk-gap-2 wk-flex-wrap">
+            <button id="applyDates" class="wk-btn wk-btn-primary">Применить</button>
+            <button id="resetDates" class="wk-btn wk-btn-secondary">Сбросить</button>
+          </div>
+        </div>
+        
+        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3">
+          <p class="wk-text-sm wk-text-muted">
+            Период применяется ко всем отчётам ниже, включая экспорт проводок.
+          </p>
+          
+          <div class="export-controls">
+            <button id="exportAllTx" class="wk-btn wk-btn-primary" type="button">Экспорт проводок в CSV</button>
+            <button id="exportAllTxXls" class="wk-btn wk-btn-secondary wk-btn-sm" type="button">XLS</button>
+            <button id="exportAllTxPdf" class="wk-btn wk-btn-secondary wk-btn-sm" type="button">PDF</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Состояние склада</h2>
+      </div>
+      <div id="inventoryLoading" class="wk-loading-spinner hidden"></div>
+      <div id="inventoryError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="table-container">
+        <table class="wk-table" id="inventoryTable" aria-labelledby="inventoryTitle">
+          <caption id="inventoryTitle" class="wk-sr-only">Таблица состояния склада</caption>
+          <thead>
+            <tr>
+              <th scope="col">Товар</th>
+              <th scope="col">Остаток</th>
+              <th scope="col">Приход/мес</th>
+              <th scope="col">Расход/мес</th>
+              <th scope="col">Оборот</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Сводка по проводкам</h2>
+      </div>
+      <div id="txSummary"></div>
+      <div id="txChartLoading" class="wk-loading-spinner hidden"></div>
+      <div id="txChartError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="chart-container">
+        <canvas id="txChart"></canvas>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <h2 class="wk-card-title">Топ товаров</h2>
+        <div class="export-controls">
+          <button id="refreshTop" class="wk-btn wk-btn-primary">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+          <button id="exportTop" class="wk-btn wk-btn-primary">CSV</button>
+          <button id="exportTopXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+          <button id="exportTopPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+        </div>
+      </div>
+      <div id="topProductsLoading" class="wk-loading-spinner hidden"></div>
+      <div id="topProductsError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="table-container">
+        <table class="wk-table" id="topProductsTable" aria-labelledby="topProductsTitle">
+          <caption id="topProductsTitle" class="wk-sr-only">Таблица топ товаров</caption>
+          <thead>
+            <tr>
+              <th scope="col">Товар</th>
+              <th scope="col">Сумма (кол-во)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <h2 class="wk-card-title">Низкий остаток</h2>
+        <div class="wk-flex wk-items-center wk-gap-3 wk-flex-wrap">
+          <label class="wk-flex wk-items-center wk-gap-1">
+            <span class="wk-text-sm">Порог</span>
+            <input id="lowThreshold" type="number" value="10" min="1" class="wk-form-input" style="width: 80px;">
+          </label>
+          <div class="export-controls">
+            <button id="refreshLow" class="wk-btn wk-btn-primary">
+              <span class="wk-loading-spinner hidden"></span>
+              Обновить
+            </button>
+            <button id="exportLow" class="wk-btn wk-btn-primary">CSV</button>
+            <button id="exportLowXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportLowPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+          </div>
+        </div>
+      </div>
+      <div id="lowStockLoading" class="wk-loading-spinner hidden"></div>
+      <div id="lowStockError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="table-container">
+        <table class="wk-table" id="lowStockTable" aria-labelledby="lowStockTitle">
+          <caption id="lowStockTitle" class="wk-sr-only">Таблица товаров с низким остатком</caption>
+          <thead>
+            <tr>
+              <th scope="col">ID</th>
+              <th scope="col">Товар</th>
+              <th scope="col">Остаток</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <h2 class="wk-card-title">Рейтинг сотрудников</h2>
+        <div class="export-controls">
+          <button id="refreshWorkers" class="wk-btn wk-btn-primary">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+          <button id="exportWorkers" class="wk-btn wk-btn-primary">CSV</button>
+          <button id="exportWorkersXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+          <button id="exportWorkersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+        </div>
+      </div>
+      <div id="workersLoading" class="wk-loading-spinner hidden"></div>
+      <div id="workersError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="table-container">
+        <table class="wk-table" id="workerPerformanceTable" aria-labelledby="workersTitle">
+          <caption id="workersTitle" class="wk-sr-only">Таблица рейтинга сотрудников</caption>
+          <thead>
+            <tr>
+              <th scope="col">Сотрудник</th>
+              <th scope="col">Операций (расход)</th>
+              <th scope="col">Единиц (расход)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <h2 class="wk-card-title">Прогноз расхода (риск за 30 дней)</h2>
+        <div class="wk-flex wk-items-center wk-gap-3 wk-flex-wrap">
+          <label class="wk-flex wk-items-center wk-gap-1">
+            <span class="wk-text-sm">Период (дней)</span>
+            <input id="forecastDays" type="number" value="30" min="7" class="wk-form-input" style="width: 80px;">
+          </label>
+          <div class="export-controls">
+            <button id="refreshForecast" class="wk-btn wk-btn-primary">
+              <span class="wk-loading-spinner hidden"></span>
+              Обновить
+            </button>
+            <button id="exportForecast" class="wk-btn wk-btn-primary">CSV</button>
+            <button id="exportForecastXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportForecastPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+          </div>
+        </div>
+      </div>
+      <div id="forecastLoading" class="wk-loading-spinner hidden"></div>
+      <div id="forecastError" class="wk-alert wk-alert-error hidden"></div>
+      <div class="table-container">
+        <table class="wk-table" id="forecastTable" aria-labelledby="forecastTitle">
+          <caption id="forecastTitle" class="wk-sr-only">Таблица прогноза расхода</caption>
+          <thead>
+            <tr>
+              <th scope="col">Товар</th>
+              <th scope="col">Остаток</th>
+              <th scope="col">Расход/день (сред.)</th>
+              <th scope="col">Закончится через (дней)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-grid wk-grid-cols-1 lg:wk-grid-cols-2 wk-gap-4">
+      <div class="wk-card">
+        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+          <h2 class="wk-card-title">Анализ по объектам</h2>
+          <div class="export-controls">
+            <button id="refreshDestinations" class="wk-btn wk-btn-primary">
+              <span class="wk-loading-spinner hidden"></span>
+              Обновить
+            </button>
+            <button id="exportDestinations" class="wk-btn wk-btn-primary">CSV</button>
+            <button id="exportDestinationsXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportDestinationsPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+          </div>
+        </div>
+        <div id="destinationsLoading" class="wk-loading-spinner hidden"></div>
+        <div id="destinationsError" class="wk-alert wk-alert-error hidden"></div>
+        <div class="chart-table-section">
+          <div class="chart-container">
+            <canvas id="destinationsChart"></canvas>
+          </div>
+          <div class="table-container">
+            <table class="wk-table" id="destinationsTable" aria-labelledby="destinationsTitle">
+              <caption id="destinationsTitle" class="wk-sr-only">Таблица анализа по объектам</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Объект</th>
+                  <th scope="col">Кол-во</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="wk-card">
+        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+          <h2 class="wk-card-title">Анализ по поставщикам</h2>
+          <div class="export-controls">
+            <button id="refreshSuppliers" class="wk-btn wk-btn-primary">
+              <span class="wk-loading-spinner hidden"></span>
+              Обновить
+            </button>
+            <button id="exportSuppliers" class="wk-btn wk-btn-primary">CSV</button>
+            <button id="exportSuppliersXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportSuppliersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
+          </div>
+        </div>
+        <div id="suppliersLoading" class="wk-loading-spinner hidden"></div>
+        <div id="suppliersError" class="wk-alert wk-alert-error hidden"></div>
+        <div class="chart-table-section">
+          <div class="chart-container">
+            <canvas id="suppliersChart"></canvas>
+          </div>
+          <div class="table-container">
+            <table class="wk-table" id="suppliersTable" aria-labelledby="suppliersTitle">
+              <caption id="suppliersTitle" class="wk-sr-only">Таблица анализа по поставщикам</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Поставщик</th>
+                  <th scope="col">Кол-во</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="notificationContainer" class="notification-container"></div>
+
+  <script src="auth.js"></script>
+  <script>
+    const ReportsApp = (function() {
+      let charts = new Map();
+      let currentDateRange = { from: null, to: null };
+      
+      const ChartManager = {
+        create(chartId, config) {
+          this.destroy(chartId);
+          const canvas = document.getElementById(chartId);
+          if (!canvas) return null;
+          
+          const chart = new Chart(canvas, config);
+          charts.set(chartId, chart);
+          return chart;
+        },
+        
+        destroy(chartId) {
+          if (charts.has(chartId)) {
+            charts.get(chartId).destroy();
+            charts.delete(chartId);
+          }
+        },
+        
+        destroyAll() {
+          charts.forEach((chart, chartId) => {
+            chart.destroy();
+            charts.delete(chartId);
+          });
+        }
+      };
+
+      const Utils = {
+        formatDate(date) {
+          try {
+            const d = new Date(date);
+            const parts = new Intl.DateTimeFormat('en-GB', {
+              timeZone: 'Europe/Moscow',
+              year: 'numeric', month: '2-digit', day: '2-digit',
+              hour: '2-digit', minute: '2-digit', hour12: false
+            }).formatToParts(d);
+            
+            const map = {};
+            parts.forEach(p => { if (p.type !== 'literal') map[p.type] = p.value });
+            return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`;
+          } catch (e) {
+            return String(date);
+          }
+        },
+
+        escapeHtml(text) {
+          if (text === null || text === undefined) return '';
+          const div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        },
+
+        showNotification(message, type = 'info') {
+          const container = document.getElementById('notificationContainer');
+          const notification = document.createElement('div');
+          notification.className = `wk-alert ${
+            type === 'error' ? 'wk-alert-error' :
+            type === 'success' ? 'wk-alert-success' :
+            'wk-alert-info'
+          }`;
+          notification.textContent = message;
+          
+          container.appendChild(notification);
+          setTimeout(() => notification.remove(), 5000);
+        },
+
+        setLoading(button, isLoading) {
+          if (!button) return;
+          
+          const spinner = button.querySelector('.wk-loading-spinner');
+          if (spinner) {
+            spinner.classList.toggle('hidden', !isLoading);
+          }
+          button.disabled = isLoading;
+        },
+
+        showSectionLoading(sectionId, isLoading) {
+          const loadingEl = document.getElementById(sectionId);
+          if (loadingEl) {
+            loadingEl.classList.toggle('hidden', !isLoading);
+          }
+        },
+
+        showSectionError(sectionId, message) {
+          const errorEl = document.getElementById(sectionId);
+          if (errorEl) {
+            errorEl.textContent = message || 'Произошла ошибка';
+            errorEl.classList.remove('hidden');
+          }
+        },
+
+        hideSectionError(sectionId) {
+          const errorEl = document.getElementById(sectionId);
+          if (errorEl) {
+            errorEl.classList.add('hidden');
+          }
+        }
+      };
+
+      const ApiService = {
+        async safeFetch(url, options = {}) {
+          try {
+            const response = await authFetch(url, options);
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            return await response.json();
+          } catch (error) {
+            console.error('API Request failed:', error);
+            throw error;
+          }
+        },
+
+        async fetchWithRetry(url, options = {}, retries = 3) {
+          try {
+            return await this.safeFetch(url, options);
+          } catch (error) {
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              return this.fetchWithRetry(url, options, retries - 1);
+            }
+            throw error;
+          }
+        },
+
+        buildQueryParams(extra = {}) {
+          const params = new URLSearchParams();
+          const from = document.getElementById('dateFrom').value;
+          const to = document.getElementById('dateTo').value;
+          
+          if (from) params.set('from', from);
+          if (to) params.set('to', to);
+          
+          Object.keys(extra).forEach(key => {
+            if (extra[key] !== undefined && extra[key] !== null) {
+              params.set(key, String(extra[key]));
+            }
+          });
+          
+          return params.toString();
+        }
+      };
+
+      const ReportSections = {
+        async loadInventory() {
+          Utils.hideSectionError('inventoryError');
+          Utils.showSectionLoading('inventoryLoading', true);
+          
+          try {
+            const data = await ApiService.fetchWithRetry('/api/reports/inventory');
+            this.renderInventory(data);
+          } catch (error) {
+            Utils.showSectionError('inventoryError', 'Не удалось загрузить состояние склада');
+          } finally {
+            Utils.showSectionLoading('inventoryLoading', false);
+          }
+        },
+
+        renderInventory(data) {
+          const tbody = document.querySelector('#inventoryTable tbody');
+          if (!tbody) return;
+          
+          const fragment = document.createDocumentFragment();
+          data.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="py-2">${Utils.escapeHtml(item.name)}</td>
+              <td class="py-2">${item.currentStock} ${Utils.escapeHtml(item.unit || '')}</td>
+              <td class="py-2">${item.monthlyInflow}</td>
+              <td class="py-2">${item.monthlyOutflow}</td>
+              <td class="py-2">${((item.turnoverRate || 0) * 100).toFixed(1)}%</td>
+            `;
+            fragment.appendChild(tr);
+          });
+          
+          tbody.innerHTML = '';
+          tbody.appendChild(fragment);
+        },
+
+        async loadTransactions() {
+          Utils.hideSectionError('txChartError');
+          Utils.showSectionLoading('txChartLoading', true);
+          
+          try {
+            const query = ApiService.buildQueryParams();
+            const data = await ApiService.fetchWithRetry(`/api/reports/transactions?${query}`);
+            this.renderTransactions(data);
+          } catch (error) {
+            Utils.showSectionError('txChartError', 'Не удалось загрузить сводку по проводкам');
+          } finally {
+            Utils.showSectionLoading('txChartLoading', false);
+          }
+        },
+
+        renderTransactions(data) {
+          const summaryEl = document.getElementById('txSummary');
+          if (summaryEl) {
+            summaryEl.innerHTML = `
+              <div class="wk-grid wk-grid-cols-3 wk-gap-4 wk-mb-4">
+                <div class="text-center">
+                  <div class="stat-value">${data.total || 0}</div>
+                  <div class="stat-label">всего</div>
+                </div>
+                <div class="text-center">
+                  <div class="stat-value" style="color: rgb(var(--color-success));">${data.incoming || 0}</div>
+                  <div class="stat-label">приход</div>
+                </div>
+                <div class="text-center">
+                  <div class="stat-value" style="color: rgb(var(--color-danger));">${data.outgoing || 0}</div>
+                  <div class="stat-label">расход</div>
+                </div>
+              </div>
+            `;
+          }
+
+          const dailyData = data.daily || [];
+          ChartManager.create('txChart', {
+            type: 'line',
+            data: {
+              labels: dailyData.map(d => Utils.formatDate(new Date(d.date))),
+              datasets: [
+                {
+                  label: 'приход',
+                  data: dailyData.map(d => d.in || 0),
+                  borderColor: 'rgb(34, 197, 94)',
+                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                  tension: 0.1,
+                  fill: true
+                },
+                {
+                  label: 'расход',
+                  data: dailyData.map(d => d.out || 0),
+                  borderColor: 'rgb(239, 68, 68)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.1,
+                  fill: true
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: true },
+                x: { ticks: { maxRotation: 45 } }
+              }
+            }
+          });
+        },
+
+        async loadTopProducts() {
+          const button = document.getElementById('refreshTop');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('topProductsError');
+          
+          try {
+            const query = ApiService.buildQueryParams({ limit: 50 });
+            const data = await ApiService.fetchWithRetry(`/api/reports/top-products?${query}`);
+            this.renderTopProducts(data);
+          } catch (error) {
+            Utils.showSectionError('topProductsError', 'Не удалось загрузить топ товаров');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderTopProducts(data) {
+          const tbody = document.querySelector('#topProductsTable tbody');
+          if (!tbody) return;
+          
+          const fragment = document.createDocumentFragment();
+          (data || []).forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="py-2">${Utils.escapeHtml(item.name)}</td>
+              <td class="py-2">${item.total}</td>
+            `;
+            fragment.appendChild(tr);
+          });
+          
+          tbody.innerHTML = '';
+          tbody.appendChild(fragment);
+        },
+
+        async loadLowStock() {
+          const button = document.getElementById('refreshLow');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('lowStockError');
+          
+          try {
+            const threshold = parseInt(document.getElementById('lowThreshold').value) || 10;
+            const data = await ApiService.fetchWithRetry(`/api/reports/low-stock?threshold=${threshold}`);
+            this.renderLowStock(data);
+          } catch (error) {
+            Utils.showSectionError('lowStockError', 'Не удалось загрузить товары с низким остатком');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderLowStock(data) {
+          const tbody = document.querySelector('#lowStockTable tbody');
+          if (!tbody) return;
+          
+          const fragment = document.createDocumentFragment();
+          (data || []).forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="py-2">${item.id}</td>
+              <td class="py-2">${Utils.escapeHtml(item.name)}</td>
+              <td class="py-2">${item.quantity}</td>
+            `;
+            fragment.appendChild(tr);
+          });
+          
+          tbody.innerHTML = '';
+          tbody.appendChild(fragment);
+        },
+
+        async loadWorkerPerformance() {
+          const button = document.getElementById('refreshWorkers');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('workersError');
+          
+          try {
+            const query = ApiService.buildQueryParams();
+            const data = await ApiService.fetchWithRetry(`/api/reports/worker-performance?${query}`);
+            this.renderWorkerPerformance(data);
+          } catch (error) {
+            Utils.showSectionError('workersError', 'Не удалось загрузить рейтинг сотрудников');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderWorkerPerformance(data) {
+          const tbody = document.querySelector('#workerPerformanceTable tbody');
+          if (!tbody) return;
+          
+          const fragment = document.createDocumentFragment();
+          (data || []).forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="py-2">${Utils.escapeHtml(item.workerName)}</td>
+              <td class="py-2">${item.transactionCount}</td>
+              <td class="py-2">${item.totalQuantity}</td>
+            `;
+            fragment.appendChild(tr);
+          });
+          
+          tbody.innerHTML = '';
+          tbody.appendChild(fragment);
+        },
+
+        async loadConsumptionForecast() {
+          const button = document.getElementById('refreshForecast');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('forecastError');
+          
+          try {
+            const days = parseInt(document.getElementById('forecastDays').value) || 30;
+            const data = await ApiService.fetchWithRetry(`/api/reports/consumption-forecast?days=${days}`);
+            this.renderConsumptionForecast(data);
+          } catch (error) {
+            Utils.showSectionError('forecastError', 'Не удалось загрузить прогноз расхода');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderConsumptionForecast(data) {
+          const tbody = document.querySelector('#forecastTable tbody');
+          if (!tbody) return;
+          
+          const fragment = document.createDocumentFragment();
+          (data || []).forEach(item => {
+            const daysLeft = item.daysToStockout !== null ? Math.floor(item.daysToStockout) : '—';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="py-2">${Utils.escapeHtml(item.productName)}</td>
+              <td class="py-2">${item.currentStock}</td>
+              <td class="py-2">${(item.avgDailyConsumption || 0).toFixed(2)}</td>
+              <td class="py-2">${daysLeft}</td>
+            `;
+            fragment.appendChild(tr);
+          });
+          
+          tbody.innerHTML = '';
+          tbody.appendChild(fragment);
+        },
+
+        async loadDestinationStats() {
+          const button = document.getElementById('refreshDestinations');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('destinationsError');
+          
+          try {
+            const query = ApiService.buildQueryParams();
+            const data = await ApiService.fetchWithRetry(`/api/reports/destination-stats?${query}`);
+            this.renderDestinationStats(data);
+          } catch (error) {
+            Utils.showSectionError('destinationsError', 'Не удалось загрузить анализ по объектам');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderDestinationStats(data) {
+          const tbody = document.querySelector('#destinationsTable tbody');
+          if (tbody) {
+            const fragment = document.createDocumentFragment();
+            (data || []).forEach(item => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td class="py-2">${Utils.escapeHtml(item.destinationName)}</td>
+                <td class="py-2">${item.totalQuantity}</td>
+              `;
+              fragment.appendChild(tr);
+            });
+            tbody.innerHTML = '';
+            tbody.appendChild(fragment);
+          }
+
+          if (data && data.length > 0) {
+            ChartManager.create('destinationsChart', {
+              type: 'pie',
+              data: {
+                labels: data.map(item => item.destinationName),
+                datasets: [{
+                  data: data.map(item => item.totalQuantity),
+                  backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                    '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                  ]
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { position: 'bottom' }
+                }
+              }
+            });
+          }
+        },
+
+        async loadSupplierStats() {
+          const button = document.getElementById('refreshSuppliers');
+          Utils.setLoading(button, true);
+          Utils.hideSectionError('suppliersError');
+          
+          try {
+            const query = ApiService.buildQueryParams();
+            const data = await ApiService.fetchWithRetry(`/api/reports/supplier-stats?${query}`);
+            this.renderSupplierStats(data);
+          } catch (error) {
+            Utils.showSectionError('suppliersError', 'Не удалось загрузить анализ по поставщикам');
+          } finally {
+            Utils.setLoading(button, false);
+          }
+        },
+
+        renderSupplierStats(data) {
+          const tbody = document.querySelector('#suppliersTable tbody');
+          if (tbody) {
+            const fragment = document.createDocumentFragment();
+            (data || []).forEach(item => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td class="py-2">${Utils.escapeHtml(item.supplierName)}</td>
+                <td class="py-2">${item.totalQuantity}</td>
+              `;
+              fragment.appendChild(tr);
+            });
+            tbody.innerHTML = '';
+            tbody.appendChild(fragment);
+          }
+
+          if (data && data.length > 0) {
+            ChartManager.create('suppliersChart', {
+              type: 'pie',
+              data: {
+                labels: data.map(item => item.supplierName),
+                datasets: [{
+                  data: data.map(item => item.totalQuantity),
+                  backgroundColor: [
+                    '#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0',
+                    '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                  ]
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { position: 'bottom' }
+                }
+              }
+            });
+          }
+        }
+      };
+
+      const ExportService = {
+        async downloadReport(type, extra = {}) {
+          try {
+            const params = ApiService.buildQueryParams({ ...extra, type });
+            const response = await authFetch(`/api/reports/export?${params}`);
+            
+            if (!response.ok) {
+              throw new Error(`Export failed: ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            
+            if (blob.size > 10 * 1024 * 1024) {
+              throw new Error('File too large');
+            }
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            const contentDisposition = response.headers.get('content-disposition');
+            const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+            a.download = filenameMatch ? filenameMatch[1] : `${type}_${new Date().toISOString().split('T')[0]}.csv`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            Utils.showNotification('Экспорт завершен успешно', 'success');
+          } catch (error) {
+            console.error('Export error:', error);
+            Utils.showNotification('Ошибка при экспорте: ' + error.message, 'error');
+          }
+        }
+      };
+
+      function initEventListeners() {
+        document.getElementById('applyDates').addEventListener('click', loadAllReports);
+        document.getElementById('resetDates').addEventListener('click', () => {
+          document.getElementById('dateFrom').value = '';
+          document.getElementById('dateTo').value = '';
+          loadAllReports();
+        });
+
+        document.getElementById('refreshTop').addEventListener('click', () => ReportSections.loadTopProducts());
+        document.getElementById('refreshLow').addEventListener('click', () => ReportSections.loadLowStock());
+        document.getElementById('refreshWorkers').addEventListener('click', () => ReportSections.loadWorkerPerformance());
+        document.getElementById('refreshForecast').addEventListener('click', () => ReportSections.loadConsumptionForecast());
+        document.getElementById('refreshDestinations').addEventListener('click', () => ReportSections.loadDestinationStats());
+        document.getElementById('refreshSuppliers').addEventListener('click', () => ReportSections.loadSupplierStats());
+
+        function attachExport(buttonId, type, extra = {}) {
+          const btn = document.getElementById(buttonId);
+          if (!btn) return;
+          try { btn.type = 'button' } catch (e) {}
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault(); e.stopPropagation();
+            Utils.setLoading(btn, true);
+            try {
+              await ExportService.downloadReport(type, extra);
+            } catch (err) {
+              console.error('export failed', err);
+              Utils.showNotification('Ошибка при экспорте: ' + (err?.message || 'unknown'), 'error');
+            } finally {
+              Utils.setLoading(btn, false);
+            }
+          });
+        }
+
+        attachExport('exportAllTx', 'transactions', {});
+        attachExport('exportAllTxXls', 'transactions', { format: 'excel' });
+        attachExport('exportAllTxPdf', 'transactions', { format: 'pdf' });
+
+        attachExport('exportTop', 'top-products', { limit: 100 });
+        attachExport('exportTopXls', 'top-products', { limit: 100, format: 'excel' });
+        attachExport('exportTopPdf', 'top-products', { limit: 100, format: 'pdf' });
+
+        attachExport('exportLow', 'low-stock', { threshold: Number(document.getElementById('lowThreshold').value) || 10 });
+        attachExport('exportLowXls', 'low-stock', { format: 'excel' });
+        attachExport('exportLowPdf', 'low-stock', { format: 'pdf' });
+
+        attachExport('exportWorkers', 'worker-performance', {});
+        attachExport('exportWorkersXls', 'worker-performance', { format: 'excel' });
+        attachExport('exportWorkersPdf', 'worker-performance', { format: 'pdf' });
+
+        attachExport('exportForecast', 'consumption-forecast', { days: Number(document.getElementById('forecastDays').value) || 30 });
+        attachExport('exportForecastXls', 'consumption-forecast', { format: 'excel' });
+        attachExport('exportForecastPdf', 'consumption-forecast', { format: 'pdf' });
+
+        attachExport('exportDestinations', 'destination-stats', {});
+        attachExport('exportDestinationsXls', 'destination-stats', { format: 'excel' });
+        attachExport('exportDestinationsPdf', 'destination-stats', { format: 'pdf' });
+
+        attachExport('exportSuppliers', 'supplier-stats', {});
+        attachExport('exportSuppliersXls', 'supplier-stats', { format: 'excel' });
+        attachExport('exportSuppliersPdf', 'supplier-stats', { format: 'pdf' });
+
+        document.getElementById('logoutBtn').addEventListener('click', logout);
+      }
+      
+      async function loadAllReports() {
+        try {
+          await Promise.all([
+            ReportSections.loadInventory(),
+            ReportSections.loadTransactions(),
+            ReportSections.loadTopProducts(),
+            ReportSections.loadLowStock(),
+            ReportSections.loadWorkerPerformance(),
+            ReportSections.loadConsumptionForecast(),
+            ReportSections.loadDestinationStats(),
+            ReportSections.loadSupplierStats()
+          ]);
+        } catch (error) {
+          Utils.showNotification('Не удалось загрузить некоторые отчеты', 'error');
+        }
+      }
+
+      function init() {
+        initEventListeners();
+        loadAllReports();
+        
+        window.addEventListener('beforeunload', () => {
+          ChartManager.destroyAll();
+        });
+      }
+
+      return {
+        init,
+        loadAllReports,
+        ChartManager,
+        ReportSections,
+        ExportService
+      };
+    })();
+
+    document.addEventListener('DOMContentLoaded', () => {
+      ReportsApp.init();
+    });
+  </script>
+</body>
+</html>

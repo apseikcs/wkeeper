@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сотрудники</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --color-primary: 37 99 235;
+      --color-primary-dark: 29 78 216;
+      --color-danger: 220 38 38;
+      --color-success: 22 163 74;
+      --color-warning: 245 158 11;
+      --color-gray-50: 249 250 251;
+      --color-gray-100: 243 244 246;
+      --color-gray-200: 229 231 235;
+      --color-gray-300: 209 213 219;
+      --color-gray-400: 156 163 175;
+      --color-gray-500: 107 114 128;
+      --color-gray-600: 75 85 99;
+      --color-gray-700: 55 65 81;
+      --color-gray-800: 31 41 55;
+      --color-gray-900: 17 24 39;
+      
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      
+      --radius-sm: 0.25rem;
+      --radius: 0.5rem;
+      --radius-lg: 0.75rem;
+      
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }
+
+    .wk-base {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.5;
+      color: rgb(var(--color-gray-800));
+      background-color: rgb(var(--color-gray-50));
+    }
+
+    .wk-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-4);
+      border-radius: var(--radius);
+      font-weight: 500;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      border: 1px solid transparent;
+      transition: all 0.2s ease-in-out;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    
+    .wk-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+    
+    .wk-btn-primary {
+      background-color: rgb(var(--color-primary));
+      color: white;
+      border-color: rgb(var(--color-primary));
+    }
+    
+    .wk-btn-primary:hover:not(:disabled) {
+      background-color: rgb(var(--color-primary-dark));
+      border-color: rgb(var(--color-primary-dark));
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    
+    .wk-btn-secondary {
+      background-color: rgb(var(--color-gray-100));
+      color: rgb(var(--color-gray-700));
+      border-color: rgb(var(--color-gray-200));
+    }
+    
+    .wk-btn-secondary:hover:not(:disabled) {
+      background-color: rgb(var(--color-gray-200));
+      border-color: rgb(var(--color-gray-300));
+    }
+    
+    .wk-btn-danger {
+      background-color: rgb(var(--color-danger));
+      color: white;
+      border-color: rgb(var(--color-danger));
+    }
+    
+    .wk-btn-danger:hover:not(:disabled) {
+      background-color: rgb(185 28 28);
+      border-color: rgb(185 28 28);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    
+    .wk-btn-outline {
+      background-color: transparent;
+      color: rgb(var(--color-primary));
+      border-color: rgb(var(--color-primary));
+    }
+    
+    .wk-btn-sm {
+      padding: var(--space-1) var(--space-3);
+      font-size: 0.75rem;
+      line-height: 1rem;
+    }
+    
+    .wk-card {
+      background: white;
+      border: 1px solid rgb(var(--color-gray-200));
+      border-radius: var(--radius-lg);
+      padding: var(--space-6);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease-in-out;
+    }
+    
+    .wk-card:hover {
+      box-shadow: var(--shadow);
+    }
+    
+    .wk-card-header {
+      margin-bottom: var(--space-4);
+    }
+    
+    .wk-card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: rgb(var(--color-gray-900));
+      margin: 0;
+    }
+    
+    .wk-form-group {
+      margin-bottom: var(--space-4);
+    }
+    
+    .wk-form-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: rgb(var(--color-gray-700));
+      margin-bottom: var(--space-1);
+    }
+    
+    .wk-form-input {
+      width: 100%;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid rgb(var(--color-gray-300));
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+    
+    .wk-form-input:focus {
+      outline: none;
+      border-color: rgb(var(--color-primary));
+      box-shadow: 0 0 0 3px rgb(var(--color-primary) / 0.1);
+    }
+    
+    .wk-form-error {
+      font-size: 0.75rem;
+      color: rgb(var(--color-danger));
+      margin-top: var(--space-1);
+    }
+    
+    .wk-nav {
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    
+    .wk-nav-item {
+      padding: var(--space-2) var(--space-4);
+      border-radius: var(--radius);
+      color: rgb(var(--color-gray-600));
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .wk-nav-item:hover {
+      background-color: rgb(var(--color-gray-100));
+      color: rgb(var(--color-gray-700));
+    }
+    
+    .wk-nav-item.active {
+      background-color: rgb(var(--color-primary));
+      color: white;
+    }
+
+    .wk-alert {
+      padding: var(--space-4);
+      border-radius: var(--radius);
+      border: 1px solid;
+      margin-bottom: var(--space-4);
+    }
+    
+    .wk-alert-error {
+      background-color: rgb(var(--color-danger) / 0.1);
+      border-color: rgb(var(--color-danger));
+      color: rgb(185 28 28);
+    }
+    
+    .wk-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    
+    .wk-loading-spinner {
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgb(var(--color-gray-200));
+      border-top: 2px solid rgb(var(--color-primary));
+      border-radius: 50%;
+      animation: wk-spin 1s linear infinite;
+    }
+    
+    @keyframes wk-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .wk-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: var(--space-1) var(--space-2);
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+    }
+    
+    .wk-badge-primary {
+      background-color: rgb(var(--color-primary) / 0.1);
+      color: rgb(var(--color-primary));
+    }
+    
+    .wk-badge-success {
+      background-color: rgb(var(--color-success) / 0.1);
+      color: rgb(var(--color-success));
+    }
+    
+    .wk-badge-warning {
+      background-color: rgb(var(--color-warning) / 0.1);
+      color: rgb(var(--color-warning));
+    }
+    
+    .wk-badge-danger {
+      background-color: rgb(var(--color-danger) / 0.1);
+      color: rgb(var(--color-danger));
+    }
+
+    .wk-container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 var(--space-4);
+    }
+    
+    .wk-page-header {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+    
+    @media (min-width: 768px) {
+      .wk-page-header {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+    }
+    
+    .wk-page-title {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: rgb(var(--color-gray-900));
+      margin: 0;
+    }
+    
+    .wk-grid {
+      display: grid;
+      gap: var(--space-4);
+    }
+    
+    .wk-grid-cols-1 { grid-template-columns: 1fr; }
+    .wk-grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .wk-grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+    
+    @media (min-width: 640px) {
+      .wk-grid-cols-sm-2 { grid-template-columns: repeat(2, 1fr); }
+    }
+    
+    @media (min-width: 768px) {
+      .wk-grid-cols-md-3 { grid-template-columns: repeat(3, 1fr); }
+    }
+    
+    @media (min-width: 1024px) {
+      .wk-grid-cols-lg-4 { grid-template-columns: repeat(4, 1fr); }
+    }
+
+    .wk-text-muted {
+      color: rgb(var(--color-gray-500));
+    }
+    
+    .wk-text-sm {
+      font-size: 0.875rem;
+    }
+    
+    .wk-font-semibold {
+      font-weight: 600;
+    }
+    
+    .wk-mb-4 { margin-bottom: var(--space-4); }
+    .wk-mb-6 { margin-bottom: var(--space-6); }
+    .wk-mt-2 { margin-top: var(--space-2); }
+    .wk-mt-4 { margin-top: var(--space-4); }
+    
+    .wk-p-4 { padding: var(--space-4); }
+    .wk-p-6 { padding: var(--space-6); }
+    
+    .wk-gap-2 { gap: var(--space-2); }
+    .wk-gap-4 { gap: var(--space-4); }
+    
+    .wk-flex { display: flex; }
+    .wk-items-center { align-items: center; }
+    .wk-justify-between { justify-content: space-between; }
+    .wk-flex-wrap { flex-wrap: wrap; }
+    .wk-flex-col { flex-direction: column; }
+    
+    @media (min-width: 768px) {
+      .wk-md-flex-row { flex-direction: row; }
+    }
+
+    .modal {
+      position: fixed;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: var(--space-4);
+    }
+    
+    .modal-card {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: var(--space-6);
+      width: 100%;
+      max-width: 420px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .worker-card {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .worker-card__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: var(--space-3);
+    }
+    
+    .worker-card__name {
+      font-weight: 600;
+      font-size: 1.125rem;
+      color: rgb(var(--color-gray-900));
+      margin: 0;
+      word-break: break-word;
+    }
+    
+    .worker-card__meta {
+      font-size: 0.875rem;
+      color: rgb(var(--color-gray-600));
+      flex-grow: 1;
+    }
+    
+    .worker-card__meta div {
+      margin-bottom: var(--space-1);
+    }
+    
+    .worker-card__tools {
+      margin-top: var(--space-3);
+      padding-top: var(--space-3);
+      border-top: 1px solid rgb(var(--color-gray-200));
+    }
+    
+    .worker-card__actions {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+    
+    @media (min-width: 640px) {
+      .worker-card__actions {
+        flex-direction: row;
+        justify-content: space-between;
+      }
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: var(--space-8) var(--space-4);
+      color: rgb(var(--color-gray-500));
+    }
+    
+    .empty-state svg {
+      margin-bottom: var(--space-4);
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header">
+      <div>
+        <h1 class="wk-page-title">Сотрудники</h1>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="index.html">Склад</a>
+          <a class="wk-nav-item" href="transactions.html">Проводки</a>
+          <a class="wk-nav-item" href="reports.html">Отчёты</a>
+          <a class="wk-nav-item active" href="workers.html">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
+          <a class="wk-nav-item" href="destinations.html">Объекты</a>
+        </nav>
+        
+        <button id="addBtn" class="wk-btn wk-btn-primary">
+          Добавить сотрудника
+        </button>
+      </div>
+    </div>
+
+    <div id="workersGrid" class="wk-grid wk-grid-cols-1 wk-grid-cols-sm-2 wk-grid-cols-md-3 wk-grid-cols-lg-4 wk-gap-4">
+    </div>
+
+    <div id="emptyState" class="wk-card empty-state hidden">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+      <h3 class="text-lg font-medium text-gray-700 mb-2">Нет сотрудников</h3>
+      <p class="text-gray-500 mb-4">Добавьте первого сотрудника, нажав на кнопку выше</p>
+      <button id="addFirstBtn" class="wk-btn wk-btn-primary">Добавить сотрудника</button>
+    </div>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    let workers = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      load();
+    });
+
+    function setupEventListeners() {
+      document.getElementById('addBtn').addEventListener('click', openAddModal);
+      document.getElementById('addFirstBtn').addEventListener('click', openAddModal);
+      document.getElementById('logoutBtn').addEventListener('click', logout);
+    }
+
+    async function fetchWorkers() {
+      try {
+        const response = await authFetch('/api/workers');
+        if (!response.ok) {
+          throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
+        }
+        return await response.json();
+      } catch (error) {
+        console.error('Ошибка при загрузке сотрудников:', error);
+        showError('Не удалось загрузить список сотрудников');
+        return [];
+      }
+    }
+
+    function showError(message) {
+      let errorEl = document.getElementById('errorNotification');
+      if (!errorEl) {
+        errorEl = document.createElement('div');
+        errorEl.id = 'errorNotification';
+        errorEl.className = 'fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50';
+        errorEl.style.maxWidth = '320px';
+        document.body.appendChild(errorEl);
+      }
+      
+      errorEl.innerHTML = `
+        <div class="flex justify-between items-start">
+          <div class="flex-1">
+            <strong class="font-bold">Ошибка! </strong>
+            <span class="block sm:inline">${escapeHtml(message)}</span>
+          </div>
+          <button type="button" class="ml-4 text-red-700 hover:text-red-900">
+            <span class="text-xl">&times;</span>
+          </button>
+        </div>
+      `;
+      
+      errorEl.querySelector('button').addEventListener('click', () => {
+        errorEl.remove();
+      });
+      
+      setTimeout(() => {
+        if (errorEl && errorEl.parentNode) {
+          errorEl.remove();
+        }
+      }, 5000);
+    }
+
+    function renderWorkers(workersList) {
+      const grid = document.getElementById('workersGrid');
+      const emptyState = document.getElementById('emptyState');
+      
+      const activeWorkers = workersList.filter(worker => !worker.deleted);
+      
+      if (activeWorkers.length === 0) {
+        grid.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      
+      grid.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+      grid.innerHTML = '';
+      
+      activeWorkers.forEach(worker => {
+        const currentAssignment = (worker.assignments && worker.assignments.length) ? worker.assignments[0] : null;
+        const currentTool = currentAssignment ? currentAssignment.tool : null;
+
+        const card = document.createElement('div');
+        card.className = 'wk-card worker-card';
+        card.innerHTML = `
+          <div class="worker-card__header">
+            <h3 class="worker-card__name">${escapeHtml(worker.fullName)}</h3>
+            <div class="wk-flex wk-items-center wk-gap-2">
+              <span class="wk-badge wk-badge-primary">#${worker.id}</span>
+              <button class="text-gray-400 hover:text-red-500 transition-colors" 
+                      data-id="${worker.id}" aria-label="Удалить сотрудника">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="worker-card__meta">
+            <div>
+              <span class="wk-text-muted">Телефон:</span> 
+              ${worker.phone ? escapeHtml(worker.phone) : '—'}
+            </div>
+            <div>
+              <span class="wk-text-muted">Должность:</span> 
+              ${worker.position ? escapeHtml(worker.position) : '—'}
+            </div>
+          </div>
+          
+          <div class="worker-card__tools">
+            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструмент:</div>
+            <div class="wk-text-sm">${currentTool ? escapeHtml(currentTool.name) : 'Не назначен'}</div>
+          </div>
+          
+          <div class="worker-card__actions">
+            ${ currentTool 
+               ? `<button class="wk-btn wk-btn-secondary wk-btn-sm unassign-btn" data-worker="${worker.id}" data-tool="${currentTool.id}">
+                    Снять инструмент
+                  </button>`
+               : `<button class="wk-btn wk-btn-primary wk-btn-sm assign-btn" data-worker="${worker.id}">
+                    Выдать инструмент
+                  </button>` }
+          </div>
+        `;
+        
+        const deleteBtn = card.querySelector('button[data-id]');
+        deleteBtn.addEventListener('click', () => openDeleteModal(worker));
+        
+        const assignBtn = card.querySelector('.assign-btn');
+        if (assignBtn) {
+          assignBtn.addEventListener('click', () => openAssignModal(worker));
+        }
+
+        const unassignBtn = card.querySelector('.unassign-btn');
+        if (unassignBtn) {
+          unassignBtn.addEventListener('click', () => {
+            const wid = Number(unassignBtn.getAttribute('data-worker'));
+            const tid = Number(unassignBtn.getAttribute('data-tool'));
+            openUnassignModal(wid, tid, worker.fullName, currentTool.name);
+          });
+        }
+
+        grid.appendChild(card);
+      });
+    }
+
+    async function openAssignModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      const allTools = await authFetch('/api/tools').then(r => r.json());
+      const available = (allTools || []).filter(t => {
+        return !(t.assignments && t.assignments.length);
+      });
+
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Выдать инструмент</h3>
+            <p class="wk-text-muted wk-mb-4">Выберите инструмент для сотрудника: <strong>${escapeHtml(worker.fullName)}</strong></p>
+            
+            <form id="assignForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Инструмент</label>
+                <select class="wk-form-input" name="toolId" required>
+                  <option value="">-- Выберите инструмент --</option>
+                  ${available.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+                </select>
+              </div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelAssign" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Выдать</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelAssign').onclick = () => modalRoot.innerHTML = '';
+      
+      document.getElementById('assignForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const toolId = Number(form.toolId.value);
+        
+        if (!toolId) {
+          showError('Выберите инструмент');
+          return;
+        }
+        
+        try {
+          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { 
+            method: 'POST' 
+          });
+          
+          if (!resp.ok) {
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Ошибка сервера');
+          }
+          
+          modalRoot.innerHTML = '';
+          await load();
+        } catch (err) {
+          showError('Ошибка при выдаче инструмента: ' + (err.message || err));
+        }
+      };
+    }
+
+    function openUnassignModal(workerId, toolId, workerName, toolName) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Снять инструмент</h3>
+            <p class="wk-text-muted wk-mb-4">
+              Вы уверены, что хотите снять инструмент <strong>${escapeHtml(toolName)}</strong> 
+              у сотрудника <strong>${escapeHtml(workerName)}</strong>?
+            </p>
+            
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button id="cancelUnassign" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button id="confirmUnassign" class="wk-btn wk-btn-danger">Снять</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelUnassign').onclick = () => modalRoot.innerHTML = '';
+      document.getElementById('confirmUnassign').onclick = () => {
+        unassignTool(workerId, toolId);
+        modalRoot.innerHTML = '';
+      };
+    }
+
+    async function unassignTool(workerId, toolId) {
+      try {
+        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { 
+          method: 'POST' 
+        });
+        
+        if (!resp.ok) {
+          const j = await resp.json().catch(() => ({}));
+          throw new Error(j.error || 'Ошибка сервера');
+        }
+        
+        await load();
+      } catch (err) {
+        showError('Ошибка при снятии инструмента: ' + (err.message || err));
+      }
+    }
+
+    function openDeleteModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Удалить сотрудника?</h3>
+            <p class="wk-text-muted wk-mb-4">
+              Вы уверены, что хотите удалить сотрудника <strong>${escapeHtml(worker.fullName)}</strong>? 
+              Сотрудник будет помечен как удаленный. История проводок сохранится.
+            </p>
+            
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteWorker(worker.id));
+      document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+      
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    async function deleteWorker(id) {
+      try {
+        const response = await authFetch(`/api/workers/${id}`, { 
+          method: 'DELETE' 
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+        }
+        
+        document.getElementById('modalRoot').innerHTML = '';
+        await load();
+      } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showError('Ошибка при удалении: ' + error.message);
+      }
+    }
+
+    function openAddModal() {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Добавить сотрудника</h3>
+            
+            <form id="addWorkerForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">ФИО *</label>
+                <input class="wk-form-input" name="fullName" required placeholder="Иванов Иван Иванович">
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Телефон</label>
+                <input class="wk-form-input" name="phone" placeholder="+7-900-000-00-00">
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Должность</label>
+                <input class="wk-form-input" name="position" placeholder="Менеджер по закупкам">
+              </div>
+              
+              <div id="addError" class="wk-alert wk-alert-error hidden"></div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelAddBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('addWorkerForm').addEventListener('submit', handleAddWorker);
+      document.getElementById('cancelAddBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+      
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    async function handleAddWorker(e) {
+      e.preventDefault();
+      
+      const form = e.target;
+      const formData = new FormData(form);
+      const errorEl = document.getElementById('addError');
+      
+      const payload = {
+        fullName: formData.get('fullName').trim(),
+        phone: formData.get('phone').trim() || null,
+        position: formData.get('position').trim() || null
+      };
+      
+      if (!payload.fullName) {
+        errorEl.textContent = 'Поле "ФИО" обязательно для заполнения';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      
+      errorEl.classList.add('hidden');
+      
+      try {
+        const response = await authFetch('/api/workers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+        }
+        
+        document.getElementById('modalRoot').innerHTML = '';
+        await load(); 
+      } catch (error) {
+        console.error('Ошибка добавления:', error);
+        errorEl.textContent = 'Ошибка при добавлении: ' + error.message;
+        errorEl.classList.remove('hidden');
+      }
+    }
+
+    async function load() {
+      workers = await fetchWorkers();
+      renderWorkers(workers);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

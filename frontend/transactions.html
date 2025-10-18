@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Проводки</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/transactions.css">
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    <header class="wk-page-header">
+      <div>
+        <h1 class="wk-page-title">Проводки</h1>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="index.html">Склад</a>
+          <a class="wk-nav-item active" href="transactions.html">Проводки</a>
+          <a class="wk-nav-item" href="reports.html">Отчёты</a>
+          <a class="wk-nav-item" href="workers.html">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
+          <a class="wk-nav-item" href="destinations.html">Объекты</a>
+        </nav>
+        
+        <div class="wk-flex wk-gap-2">
+          <button id="refreshBtn" class="wk-btn wk-btn-secondary">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row md:wk-items-center sort-controls">
+        <span class="wk-text-sm wk-font-semibold">Сортировка:</span>
+        <div class="sort-buttons">
+          <button class="sort-btn" id="sortDate">дата ↓</button>
+          <span class="wk-text-muted">|</span>
+          <button class="sort-btn" id="sortProduct">товар ↓</button>
+          <span class="wk-text-muted">|</span>
+          <button class="sort-btn" id="sortQuantity">кол-во ↓</button>
+        </div>
+      </div>
+      
+      <div class="wk-mt-4 wk-flex wk-flex-col wk-gap-3 md:wk-flex-row md:wk-items-center">
+        <label class="wk-flex wk-items-center wk-gap-2">
+          <span class="wk-text-sm wk-font-semibold">Поиск</span>
+          <div class="search-wrap">
+            <input id="unifiedSearch" class="wk-form-input" placeholder="Введите товар/поставщик/объект/работник" autocomplete="off">
+            <div id="searchDropdown" class="dropdown" style="display:none"></div>
+          </div>
+        </label>
+        <button id="clearFilter" class="wk-btn wk-btn-secondary wk-btn-sm">Сбросить</button>
+      </div>
+    </div>
+
+    <!-- Таблица проводок -->
+    <div class="wk-card">
+      <div class="table-container">
+        <table class="wk-table" id="transactionsTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Дата</th>
+              <th>Товар</th>
+              <th>Кол-во</th>
+              <th>Тип</th>
+              <th>Поставщик</th>
+              <th>Объект</th>
+              <th>Работник</th>
+              <th>Примечание</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    const formatDate = date => {
+      try {
+        const d = new Date(date)
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Europe/Moscow',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false
+        }).formatToParts(d)
+        const map = {}
+        parts.forEach(p => { if (p.type !== 'literal') map[p.type] = p.value })
+        return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`
+      } catch (e) { return String(date) }
+    }
+
+    let currentSort = 'date_desc'
+    let currentEntity = null
+    let currentSearch = ''
+
+    async function fetchTransactions() {
+      const params = new URLSearchParams()
+      params.set('sort', currentSort)
+      if (currentEntity) { 
+        params.set('entityType', currentEntity.type); 
+        params.set('entityId', String(currentEntity.id)) 
+      }
+      if (currentSearch) params.set('search', currentSearch)
+      
+      const res = await authFetch('/api/transactions?' + params.toString())
+      return res.json()
+    }
+
+    function render(rows) {
+      const tbody = document.querySelector('#transactionsTable tbody')
+      tbody.innerHTML = ''
+      let items = rows.items || []
+      
+      if (currentSort === 'quantity_desc' || currentSort === 'quantity_asc') {
+        const dir = currentSort === 'quantity_desc' ? -1 : 1
+        items = items.slice().sort((a,b)=>{
+          const da = Math.abs(a.delta || 0)
+          const db = Math.abs(b.delta || 0)
+          if (da === db) return 0
+          return da < db ? -1*dir : 1*dir
+        })
+      }
+      
+      items.forEach(r => {
+        const tr = document.createElement('tr')
+        tr.innerHTML = `
+          <td>${r.id}</td>
+          <td>${formatDate(r.date)}</td>
+          <td>${r.product ? r.product.name : (r.productName || '')}</td>
+          <td>${Math.abs(r.delta)}</td>
+          <td class="type ${r.type}">${r.type}</td>
+          <td>${r.supplier ? r.supplier.name : (r.supplierName || '')}</td>
+          <td>${r.destination ? r.destination.name : (r.destinationName || '')}</td>
+          <td>${r.worker ? r.worker.fullName : ''}</td>
+          <td contenteditable data-id="${r.id}" class="note-cell">${r.note || ''}</td>`
+        tbody.appendChild(tr)
+      })
+    }
+
+    async function load() { 
+      const spinner = document.querySelector('#refreshBtn .wk-loading-spinner');
+      spinner.classList.remove('hidden');
+      
+      try {
+        const data = await fetchTransactions()
+        render(data)
+      } catch (error) {
+        console.error('Ошибка загрузки проводок:', error)
+      } finally {
+        spinner.classList.add('hidden');
+      }
+    }
+
+    function updateSortLabels(){
+      const dateBtn = document.getElementById('sortDate')
+      const prodBtn = document.getElementById('sortProduct')
+      const qtyBtn = document.getElementById('sortQuantity')
+      
+      dateBtn.textContent = 'дата ' + (currentSort === 'date_asc' ? '↑' : currentSort === 'date_desc' ? '↓' : '↕')
+      prodBtn.textContent = 'товар ' + (currentSort === 'product_asc' ? '↑' : currentSort === 'product_desc' ? '↓' : '↕')
+      qtyBtn.textContent = 'кол-во ' + (currentSort === 'quantity_asc' ? '↑' : currentSort === 'quantity_desc' ? '↓' : '↕')
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('refreshBtn').addEventListener('click', () => load())
+
+      document.getElementById('sortDate').addEventListener('click', () => {
+        currentSort = currentSort === 'date_desc' ? 'date_asc' : 'date_desc'
+        updateSortLabels()
+        load()
+      })
+
+      document.getElementById('sortProduct').addEventListener('click', () => {
+        currentSort = currentSort === 'product_desc' ? 'product_asc' : 'product_desc'
+        updateSortLabels()
+        load()
+      })
+
+      document.getElementById('sortQuantity').addEventListener('click', () => {
+        currentSort = currentSort === 'quantity_desc' ? 'quantity_asc' : 'quantity_desc'
+        updateSortLabels()
+        load()
+      })
+
+      document.getElementById('clearFilter').addEventListener('click', () => {
+        currentEntity = null
+        currentSearch = ''
+        document.getElementById('unifiedSearch').value = ''
+        document.getElementById('searchDropdown').style.display = 'none'
+        load()
+      })
+
+      let searchTimeout = null
+      const inputEl = document.getElementById('unifiedSearch')
+      const dd = document.getElementById('searchDropdown')
+      
+      inputEl.addEventListener('input', (e) => {
+        const v = e.target.value
+        currentSearch = v
+        currentEntity = null
+        
+        if (searchTimeout) clearTimeout(searchTimeout)
+        
+        if (!v) { 
+          dd.style.display = 'none'; 
+          return 
+        }
+        
+        searchTimeout = setTimeout(async () => {
+          const res = await authFetch('/api/search?q=' + encodeURIComponent(v))
+          const data = await res.json()
+          dd.innerHTML = ''
+          const items = data.items || []
+          
+          if (!items.length) { 
+            dd.style.display = 'none'; 
+            return 
+          }
+          
+          items.forEach(it => {
+            const el = document.createElement('div')
+            let typeDisplay = it.type;
+            if (it.type === 'product') typeDisplay = 'товар';
+            else if (it.type === 'supplier') typeDisplay = 'поставщик';
+            else if (it.type === 'destination') typeDisplay = 'объект';
+            else if (it.type === 'worker') typeDisplay = 'работник';
+            
+            el.textContent = it.name + ' [' + typeDisplay + ']' 
+            el.onclick = () => {
+              currentEntity = { type: it.type, id: it.id }
+              inputEl.value = it.name
+              dd.style.display = 'none'
+              load()
+            }
+            dd.appendChild(el)
+          })
+          dd.style.display = 'block'
+        }, 250)
+      })
+      
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          dd.style.display = 'none'
+          load()
+        }
+      })
+
+      document.getElementById('transactionsTable').addEventListener('focusout', async (e) => {
+        const td = e.target.closest('td.note-cell')
+        if (!td) return
+        
+        const id = Number(td.getAttribute('data-id'))
+        const note = td.textContent.trim()
+        
+        try {
+          await authFetch('/api/transactions/' + id, {
+            method: 'PATCH',
+            headers: {'content-type': 'application/json'}, 
+            body: JSON.stringify({ note })
+          })
+        } catch (error) {
+          console.error('Ошибка сохранения примечания:', error)
+        }
+      })
+      
+      document.getElementById('transactionsTable').addEventListener('keydown', async (e) => {
+        const td = e.target.closest('td.note-cell')
+        if (!td) return
+        
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          td.blur()
+        }
+      })
+
+      document.getElementById('logoutBtn').addEventListener('click', logout)
+    })
+
+    updateSortLabels()
+    load()
+  </script>
+</body>
+</html>

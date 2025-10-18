@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Склад</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/index.css">
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header">
+      <div>
+        <h1 class="wk-page-title">Склад</h1>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+    </header>
+    
+    <div class="wk-grid wk-grid-cols-1 wk-grid-cols-md-3 wk-gap-4 wk-mb-6">
+      <div class="wk-card stat-card">
+        <div class="stat-value" id="totalProducts">—</div>
+        <div class="stat-label">Товаров всего</div>
+      </div>
+      <div class="wk-card stat-card">
+        <div class="stat-value" id="todayTransactions">—</div>
+        <div class="stat-label">Проводок сегодня</div>
+      </div>
+      <div class="wk-card stat-card">
+        <div class="stat-value" id="lastActivity">—</div>
+        <div class="stat-label">Последняя активность</div>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="transactions.html">Проводки</a>
+          <a class="wk-nav-item" href="reports.html">Отчёты</a>
+          <a class="wk-nav-item" href="workers.html">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
+          <a class="wk-nav-item" href="destinations.html">Объекты</a>
+        </nav>
+        
+        <div class="wk-flex wk-gap-2 wk-flex-wrap">
+          <button id="createProductBtn" class="wk-btn wk-btn-primary wk-btn-sm md:wk-btn">
+            Создать товар
+          </button>
+          <button id="refreshBtn" class="wk-btn wk-btn-secondary wk-btn-sm md:wk-btn">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row md:wk-items-center">
+        <label class="wk-flex wk-items-center wk-gap-2">
+          <span class="wk-text-sm wk-font-semibold">Поиск</span>
+          <div class="search-wrap">
+            <input id="productSearch" class="wk-form-input" placeholder="Товар или поставщик" autocomplete="off">
+            <div id="prodDropdown" class="dropdown" style="display:none"></div>
+          </div>
+        </label>
+        <button id="clearFilter" class="wk-btn wk-btn-secondary wk-btn-sm">Сбросить</button>
+      </div>
+    </div>
+
+    <div class="wk-card">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Товары на складе</h2>
+      </div>
+      <div class="table-container">
+        <table class="wk-table" id="productsTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="id">ID <span class="sort-arrow" id="sortArrowId">↕</span></th>
+              <th class="sortable" data-sort="name">Название <span class="sort-arrow" id="sortArrowName">↕</span></th>
+              <th class="sortable" data-sort="supplier">Поставщик <span class="sort-arrow" id="sortArrowSupplier">↕</span></th>
+              <th class="sortable" data-sort="quantity">Остаток <span class="sort-arrow" id="sortArrowQuantity">↕</span></th>
+              <th class="sortable" data-sort="unit">Ед.изм <span class="sort-arrow" id="sortArrowUnit">↕</span></th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mt-6">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Последние проводки</h2>
+      </div>
+      <div class="table-container">
+        <table class="wk-table" id="recentTransactionsTable">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Товар</th>
+              <th>Кол-во</th>
+              <th>Тип</th>
+              <th>Кто/куда</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    const formatDate = date => {
+      try {
+        const d = new Date(date)
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Europe/Moscow',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false
+        }).formatToParts(d)
+        const map = {}
+        parts.forEach(p => { if (p.type !== 'literal') map[p.type] = p.value })
+        return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`
+      } catch (e) { return String(date) }
+    }
+
+    let currentProductId = undefined;
+    let currentSearch = '';
+    let searchTimeout = null;
+
+    let currentSortField = null; 
+    let currentSortDir = 'asc'; 
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      load();
+    });
+
+    function setupEventListeners() {
+      document.getElementById('clearFilter').addEventListener('click', () => {
+        currentProductId = undefined;
+        currentSearch = '';
+        document.getElementById('productSearch').value = '';
+        document.getElementById('prodDropdown').style.display = 'none';
+        load();
+      });
+
+      document.getElementById('productSearch').addEventListener('input', handleSearchInput);
+      document.getElementById('productSearch').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          document.getElementById('prodDropdown').style.display = 'none';
+          load();
+        }
+      });
+
+      document.getElementById('productsTable').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const action = btn.getAttribute('data-action');
+        if (id && action) {
+          if (action === 'delete') openDeleteModal(id);
+          else openAdjustModal(id, action);
+        }
+      });
+
+      document.getElementById('createProductBtn').addEventListener('click', openCreateProductModal);
+
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        const spinner = document.querySelector('#refreshBtn .wk-loading-spinner');
+        spinner.classList.remove('hidden');
+        load().finally(() => {
+          spinner.classList.add('hidden');
+        });
+      });
+
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.add-entity-btn');
+        if (btn) {
+          const type = btn.getAttribute('data-type');
+          if (type) openAddEntityForm(type);
+        }
+      });
+      
+      document.getElementById('logoutBtn').addEventListener('click', logout);
+
+      document.querySelectorAll('#productsTable th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+          const field = th.getAttribute('data-sort');
+          if (currentSortField === field) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSortField = field;
+            currentSortDir = 'asc';
+          }
+          updateSortArrows();
+          load();
+        });
+      });
+    }
+
+    async function handleSearchInput(e) {
+      const v = e.target.value;
+      currentSearch = v;
+      currentProductId = undefined;
+      if (searchTimeout) clearTimeout(searchTimeout);
+      const dd = document.getElementById('prodDropdown');
+      if (!v) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
+      
+      searchTimeout = setTimeout(async () => {
+        const [prodRes, supRes] = await Promise.all([
+          authFetch('/api/products?search=' + encodeURIComponent(v)),
+          authFetch('/api/suppliers')
+        ]);
+        const products = await prodRes.json();
+        const suppliers = (await supRes.json()).filter(s => s.name.toLowerCase().includes(v.toLowerCase()));
+        
+        dd.innerHTML = '';
+        
+        products.forEach(p => {
+          const el = document.createElement('div');
+          el.textContent = p.name + ' [товар]';
+          el.onclick = () => {
+            currentProductId = p.id;
+            document.getElementById('productSearch').value = p.name;
+            dd.style.display = 'none';
+            load();
+          };
+          dd.appendChild(el);
+        });
+        
+        suppliers.forEach(s => {
+          const el = document.createElement('div');
+          el.textContent = s.name + ' [поставщик]';
+          el.onclick = () => {
+            currentProductId = undefined;
+            currentSearch = '';
+            document.getElementById('productSearch').value = s.name;
+            dd.style.display = 'none';
+            
+            (async () => {
+              const all = await (await authFetch('/api/products')).json();
+              const filtered = all.filter(p => {
+                const hasSupplier = (p.transactions || []).some(
+                  t => t.type === 'in' && ((t.supplier && t.supplier.name && t.supplier.name.toLowerCase().includes(s.name.toLowerCase())) ||
+                                          (t.supplierName && t.supplierName.toLowerCase().includes(s.name.toLowerCase())))
+                );
+                return hasSupplier;
+              });
+              render(filtered);
+            })();
+          };
+          dd.appendChild(el);
+        });
+        
+        dd.style.display = dd.innerHTML ? 'block' : 'none';
+      }, 250);
+    }
+
+    async function fetchProducts() {
+      if (currentProductId) {
+        const res = await authFetch('/api/products');
+        const all = await res.json();
+        return all.filter(p => p.id === currentProductId);
+      }
+      const url = currentSearch ? '/api/products?search=' + encodeURIComponent(currentSearch) : '/api/products';
+      const res = await authFetch(url);
+      return res.json();
+    }
+
+    function updateSortArrows() {
+      const arrows = {
+        asc: '↑',
+        desc: '↓',
+        none: '↕'
+      };
+      const fields = ['id', 'name', 'supplier', 'quantity', 'unit'];
+      fields.forEach(f => {
+        const el = document.getElementById('sortArrow' + capitalize(f));
+        if (!el) return;
+        if (currentSortField === f) {
+          el.textContent = arrows[currentSortDir];
+        } else {
+          el.textContent = arrows.none;
+        }
+      });
+    }
+    
+    function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+    function render(products){
+      let sorted = products.slice();
+      if (currentSortField) {
+        sorted.sort((a, b) => {
+          let va, vb;
+          switch (currentSortField) {
+            case 'id': va = a.id; vb = b.id; break;
+            case 'name': va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase(); break;
+            case 'supplier':
+              va = getSupplierString(a).toLowerCase();
+              vb = getSupplierString(b).toLowerCase();
+              break;
+            case 'quantity': va = a.quantity; vb = b.quantity; break;
+            case 'unit': va = (a.unit || '').toLowerCase(); vb = (b.unit || '').toLowerCase(); break;
+            default: va = 0; vb = 0;
+          }
+          if (va < vb) return currentSortDir === 'asc' ? -1 : 1;
+          if (va > vb) return currentSortDir === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+      
+      const tbody = document.querySelector('#productsTable tbody')
+      tbody.innerHTML = ''
+      
+      if (sorted.length === 0) {
+        const tr = document.createElement('tr')
+        tr.innerHTML = `<td colspan="6" style="text-align:center;color:#888">Нет товаров</td>`
+        tbody.appendChild(tr)
+        return
+      }
+      
+      sorted.forEach(p => {
+        const supplierDisplay = getSupplierString(p);
+        const tr = document.createElement('tr')
+        tr.innerHTML = `
+          <td>${p.id}</td>
+          <td>${p.name}</td>
+          <td>${supplierDisplay}</td>
+          <td>${p.quantity}</td>
+          <td>${p.unit}</td>
+          <td>
+            <div class="wk-flex wk-gap-1 wk-flex-wrap">
+              <button class="wk-btn wk-btn-primary wk-btn-sm" data-id="${p.id}" data-action="in">+ Приход</button>
+              <button class="wk-btn wk-btn-secondary wk-btn-sm" data-id="${p.id}" data-action="out">- Расход</button>
+              <button class="wk-btn wk-btn-danger wk-btn-sm" data-id="${p.id}" data-action="delete">Удалить</button>
+            </div>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function getSupplierString(p) {
+      const suppliers = (p.transactions || [])
+        .filter(t => t.type === 'in' && (t.supplier?.name || t.supplierName))
+        .map(t => t.supplier?.name || t.supplierName)
+        .filter((name, i, arr) => name && arr.indexOf(name) === i);
+      return suppliers.length ? suppliers.join(', ') : '';
+    }
+
+    async function openAdjustModal(productId, type) {
+      const [workers, destinations] = await Promise.all([
+        authFetch('/api/workers').then(r => r.json()),
+        authFetch('/api/locations').then(r => r.json())
+      ]);
+      const modalRoot = document.getElementById('modalRoot');
+
+      if (type === 'in') {
+        const suppliers = await authFetch('/api/suppliers').then(r => r.json());
+        modalRoot.innerHTML = `
+          <div class="modal">
+            <div class="modal-card">
+              <h3 class="wk-card-title wk-mb-4">Приход товара #${productId}</h3>
+              <form id="adjFormIn">
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Количество</label>
+                  <input class="wk-form-input" name="delta" type="number" step="1" min="1" required>
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Поставщик</label>
+                  <div class="wk-flex wk-gap-2">
+                    <select class="wk-form-input" name="supplierId" required style="flex: 1;">
+                      <option value="">Выберите поставщика</option>
+                      ${suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                    </select>
+                    <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier">+</button>
+                  </div>
+                </div>
+                <div class="wk-flex wk-gap-2 wk-justify-between">
+                  <button type="button" id="cancelBtnIn" class="wk-btn wk-btn-secondary">Отмена</button>
+                  <button type="submit" class="wk-btn wk-btn-primary">Подтвердить</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `;
+        
+        document.getElementById('cancelBtnIn').onclick = () => modalRoot.innerHTML = '';
+        document.getElementById('adjFormIn').onsubmit = async (e) => {
+          e.preventDefault();
+          const form = e.target;
+          const raw = Number(form.delta.value);
+          if (!Number.isInteger(raw) || raw <= 0) { 
+            alert('Нужно целое положительное число'); 
+            return; 
+          }
+          
+          const data = {
+            delta: raw,
+            type: 'in',
+            supplierId: Number(form.supplierId.value)
+          };
+          
+          const resp = await authFetch(`/api/products/${productId}/adjust`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            alert('Ошибка: ' + (json.error || JSON.stringify(json)));
+          } else {
+            modalRoot.innerHTML = '';
+            load();
+          }
+        };
+        return;
+      }
+
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Расход товара #${productId}</h3>
+            <form id="adjFormOut">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input class="wk-form-input" name="delta" type="number" step="1" min="1" required>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Куда (объект)</label>
+                <div class="wk-flex wk-gap-2">
+                  <select class="wk-form-input" name="destinationId" required style="flex: 1;">
+                    <option value="">Выберите объект</option>
+                    ${destinations.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+                  </select>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="destination">+</button>
+                </div>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Кому (работник)</label>
+                <select class="wk-form-input" name="workerId" required>
+                  <option value="">Выберите работника</option>
+                  ${workers.map(w => `<option value="${w.id}">${w.fullName}</option>`).join('')}
+                </select>
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelBtnOut" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Подтвердить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelBtnOut').onclick = () => modalRoot.innerHTML = '';
+      document.getElementById('adjFormOut').onsubmit = async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const raw = Number(form.delta.value);
+        if (!Number.isInteger(raw) || raw <= 0) { 
+          alert('Нужно целое положительное число'); 
+          return; 
+        }
+        
+        if (!form.workerId.value) { 
+          alert('Выберите работника'); 
+          return; 
+        }
+        
+        const data = {
+          delta: raw,
+          type: 'out',
+          destinationId: Number(form.destinationId.value),
+          workerId: Number(form.workerId.value)
+        };
+        
+        const resp = await authFetch(`/api/products/${productId}/adjust`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          alert('Ошибка: ' + (json.error || JSON.stringify(json)));
+        } else {
+          modalRoot.innerHTML = '';
+          load();
+        }
+      };
+    }
+
+    async function openAddEntityForm(type) {
+      const modalRoot = document.getElementById('modalRoot')
+      if (type === 'supplier') {
+        const wrapper = document.createElement('div')
+        wrapper.innerHTML = `
+          <div class="modal" data-modal="add-entity">
+            <div class="modal-card">
+              <div class="wk-card-title wk-mb-4">Добавить поставщика</div>
+              <form id="addSupplierForm">
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Название</label>
+                  <input class="wk-form-input" name="name" required>
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Телефон</label>
+                  <input class="wk-form-input" name="phone" placeholder="+7-900-000-00-00">
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Email</label>
+                  <input class="wk-form-input" name="email" type="email" placeholder="name@example.com">
+                </div>
+                <div class="wk-flex wk-gap-2 wk-justify-between">
+                  <button type="button" class="wk-btn wk-btn-secondary" onclick="this.closest('[data-modal=add-entity]').remove()">Отмена</button>
+                  <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `
+        modalRoot.appendChild(wrapper.firstElementChild)
+        document.getElementById('addSupplierForm').onsubmit = async (e) => {
+          e.preventDefault()
+          const f = e.target
+          const data = { 
+            name: f.name.value.trim(), 
+            phone: f.phone.value.trim(), 
+            email: f.email.value.trim() 
+          }
+          
+          const r = await authFetch('/api/suppliers', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(data)
+          })
+          
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}))
+            alert(err.error || 'Ошибка')
+            return
+          }
+          
+          const newSupplier = await r.json()
+          document.querySelectorAll('select[name="supplierId"]').forEach(select => {
+            const opt = document.createElement('option')
+            opt.value = String(newSupplier.id)
+            opt.textContent = newSupplier.name
+            select.appendChild(opt)
+            select.value = String(newSupplier.id)
+          })
+          e.target.closest('[data-modal]').remove()
+        }
+      } else if (type === 'destination') {
+        const wrapper = document.createElement('div')
+        wrapper.innerHTML = `
+          <div class="modal" data-modal="add-entity">
+            <div class="modal-card">
+              <div class="wk-card-title wk-mb-4">Добавить объект</div>
+              <form id="addDestForm">
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Название</label>
+                  <input class="wk-form-input" name="name" required>
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Город</label>
+                  <input class="wk-form-input" name="city">
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Район</label>
+                  <input class="wk-form-input" name="district">
+                </div>
+                <div class="wk-form-group">
+                  <label class="wk-form-label">Адрес</label>
+                  <input class="wk-form-input" name="address">
+                </div>
+                <div class="wk-flex wk-gap-2 wk-justify-between">
+                  <button type="button" class="wk-btn wk-btn-secondary" onclick="this.closest('[data-modal=add-entity]').remove()">Отмена</button>
+                  <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `
+        modalRoot.appendChild(wrapper.firstElementChild)
+        document.getElementById('addDestForm').onsubmit = async (e) => {
+          e.preventDefault()
+          const f = e.target
+          const data = {
+            name: f.name.value.trim(),
+            city: f.city.value.trim(),
+            district: f.district.value.trim(),
+            address: f.address.value.trim()
+          }
+          
+          const r = await authFetch('/api/locations', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(data)
+          })
+          
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}))
+            alert(err.error || 'Ошибка')
+            return
+          }
+          
+          const newDest = await r.json()
+          document.querySelectorAll('select[name="destinationId"]').forEach(select => {
+            const opt = document.createElement('option')
+            opt.value = String(newDest.id)
+            opt.textContent = newDest.name
+            select.appendChild(opt)
+            select.value = String(newDest.id)
+          })
+          e.target.closest('[data-modal]').remove()
+        }
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target.matches('.modal')) {
+        const addEntityModal = e.target.matches('[data-modal=add-entity]')
+        if (addEntityModal) {
+          e.target.remove()
+        } else {
+          document.getElementById('modalRoot').innerHTML = ''
+        }
+      }
+    })
+
+    async function openDeleteModal(productId) {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Удалить товар #${productId}?</h3>
+            <p class="wk-text-muted wk-mb-4">По умолчанию проводки останутся в истории.</p>
+            <div class="wk-form-group">
+              <label class="wk-flex wk-items-center wk-gap-2">
+                <input type="checkbox" id="purgeTx">
+                <span>Удалить проводки</span>
+              </label>
+            </div>
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button id="cancelDel" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button id="confirmDelete" class="wk-btn wk-btn-danger">Удалить</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelDel').onclick = () => modalRoot.innerHTML = '';
+      document.getElementById('confirmDelete').onclick = async () => {
+        const purge = document.getElementById('purgeTx').checked;
+        const resp = await authFetch(`/api/products/${productId}?purge=${purge ? 'true' : 'false'}`, { 
+          method: 'DELETE' 
+        });
+        
+        const json = await resp.json();
+        if (!resp.ok) {
+          alert('Ошибка при удалении: ' + (json.error || JSON.stringify(json)));
+        } else {
+          modalRoot.innerHTML = '';
+          load();
+        }
+      };
+    }
+
+    async function openCreateProductModal() {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Создать товар</h3>
+            <form id="createForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название</label>
+                <input class="wk-form-input" name="name" required>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Ед.изм</label>
+                <input class="wk-form-input" name="unit" value="шт">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Поставщик</label>
+                <div class="wk-flex wk-gap-2">
+                  <select class="wk-form-input" name="supplierId" required style="flex: 1;">
+                    <option value="">Выберите поставщика</option>
+                  </select>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier">+</button>
+                </div>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Остаток</label>
+                <input class="wk-form-input" name="quantity" type="number" step="1" min="0" max="65535" value="0">
+              </div>
+              <div id="createError" class="wk-alert wk-alert-error hidden"></div>
+              <div id="createSpinner" class="wk-loading hidden">
+                <span class="wk-loading-spinner"></span>
+                Сохранение...
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancel2" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Создать</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancel2').onclick = () => modalRoot.innerHTML = '';
+      
+      const suppliers = await authFetch('/api/suppliers').then(r => r.json());
+      const select = document.querySelector('select[name="supplierId"]');
+      select.innerHTML = '<option value="">Выберите поставщика</option>';
+      suppliers.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = String(s.id);
+        opt.textContent = s.name;
+        select.appendChild(opt);
+      });
+
+      document.getElementById('createForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const errorEl = document.getElementById('createError');
+        const spinnerEl = document.getElementById('createSpinner');
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+        spinnerEl.classList.remove('hidden');
+        
+        const submitBtn = f.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        
+        try {
+          const name = f.name.value.trim();
+          const unit = f.unit.value.trim();
+          const quantity = Number(f.quantity.value);
+          const supplierId = f.supplierId.value;
+
+          if (!name) {
+            throw new Error('Название товара не может быть пустым');
+          }
+
+          if (!Number.isInteger(quantity) || quantity < 0) {
+            throw new Error('Остаток должен быть целым и неотрицательным числом');
+          }
+
+          if (quantity > 65535) {
+            throw new Error('Максимальное значение остатка: 65535');
+          }
+
+          if (!supplierId) {
+            throw new Error('Необходимо выбрать поставщика');
+          }
+
+          const allProducts = await authFetch('/api/products').then(r => r.json());
+          if (allProducts.some(p => p.name.trim().toLowerCase() === name.toLowerCase())) {
+            throw new Error('Товар с таким названием уже существует');
+          }
+
+          const payload = { 
+            name, 
+            unit, 
+            quantity,
+            supplierId: Number(supplierId)
+          };
+
+          const response = await authFetch('/api/products', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload) 
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Неизвестная ошибка сервера' }));
+            throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+          }
+
+          modalRoot.innerHTML = '';
+          load();
+          
+        } catch (error) {
+          errorEl.textContent = error.message || 'Произошла неизвестная ошибка';
+          errorEl.classList.remove('hidden');
+        } finally {
+          spinnerEl.classList.add('hidden');
+          submitBtn.disabled = false;
+        }
+      };
+    }
+
+    async function loadStats() {
+      const [stats, recent] = await Promise.all([
+        authFetch('/api/stats').then(r => r.json()),
+        authFetch('/api/transactions/recent').then(r => r.json())
+      ]);
+      
+      document.getElementById('totalProducts').textContent = String(stats.totalProducts);
+      document.getElementById('todayTransactions').textContent = String(stats.todayTransactions);
+      document.getElementById('lastActivity').textContent = stats.lastActivity ? 
+        formatDate(stats.lastActivity) : '—';
+
+      const tbody = document.getElementById('recentTransactionsTable').querySelector('tbody');
+      tbody.innerHTML = '';
+      
+      recent.forEach(t => {
+        const tr = document.createElement('tr');
+        const who = t.type === 'in' 
+          ? (t.supplier?.name || t.supplierName || '—')
+          : (t.destination?.name || t.destinationName || '—');
+        tr.innerHTML = `
+          <td>${formatDate(t.date)}</td>
+          <td>${t.product?.name || t.productName}</td>
+          <td>${Math.abs(t.delta)}</td>
+          <td class="type ${t.type}">${t.type}</td>
+          <td>${who}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function load() {
+      const [products] = await Promise.all([
+        fetchProducts(),
+        loadStats()
+      ]);
+      render(products);
+      updateSortArrows();
+    }
+  </script>
+</body>
+</html>

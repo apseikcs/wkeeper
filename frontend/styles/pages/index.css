@@ -1,0 +1,32 @@
+.search-wrap { display: inline-block; position: relative; }
+
+.dropdown {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid rgb(var(--color-gray-300));
+  border-radius: var(--radius);
+  max-height: 200px;
+  overflow: auto;
+  width: 100%;
+  z-index: 10;
+  box-shadow: var(--shadow-md);
+}
+
+.dropdown div { padding: var(--space-2) var(--space-3); cursor: pointer; border-bottom: 1px solid rgb(var(--color-gray-100)); }
+.dropdown div:hover { background-color: rgb(var(--color-gray-50)); }
+.dropdown div:last-child { border-bottom: none; }
+
+.modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: var(--space-4); }
+.modal-card { background: white; border-radius: var(--radius-lg); padding: var(--space-6); width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+
+.type.in { color: rgb(var(--color-success)); font-weight: 600; }
+.type.out { color: rgb(var(--color-danger)); font-weight: 600; }
+
+.table-container { overflow-x: auto; margin-bottom: var(--space-6); }
+
+.stat-card { text-align: center; padding: var(--space-4); }
+.stat-value { font-size: 1.5rem; font-weight: 700; color: rgb(var(--color-gray-900)); margin-bottom: var(--space-1); }
+@media (min-width: 640px) { .stat-value { font-size: 1.875rem; } }
+.stat-label { color: rgb(var(--color-gray-500)); font-size: 0.875rem; }

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход</title>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/login.css">
+</head>
+<body class="wk-base">
+  <div class="login-container">
+    <div class="wk-card fade-in">
+      <div class="login-brand">
+        <div class="brand-logo">WK</div>
+        <h1 class="brand-name">Warehouse Keeper</h1>
+        <p class="brand-subtitle">Система управления складом</p>
+      </div>
+      
+      <form id="loginForm">
+        <div class="wk-card-header">
+          <h2 class="wk-card-title">Вход в систему</h2>
+          <p class="wk-card-subtitle">Введите ваши учетные данные</p>
+        </div>
+        
+        <div class="wk-form-group">
+          <label class="wk-form-label" for="username">
+            Логин
+          </label>
+          <input 
+            class="wk-form-input" 
+            id="username" 
+            type="text" 
+            placeholder="Введите ваш логин" 
+            required
+            autocomplete="username"
+          >
+        </div>
+        
+        <div class="wk-form-group">
+          <label class="wk-form-label" for="password">
+            Пароль
+          </label>
+          <div class="password-wrapper">
+            <input 
+              class="wk-form-input" 
+              id="password" 
+              type="password" 
+              placeholder="Введите ваш пароль" 
+              required
+              autocomplete="current-password"
+            >
+            <button type="button" class="password-toggle" id="passwordToggle">
+              👁️
+            </button>
+          </div>
+        </div>
+        
+        <div class="wk-mb-6">
+          <button class="wk-btn wk-btn-primary" type="submit" id="submitBtn">
+            <span class="wk-loading-spinner hidden"></span>
+            Войти в систему
+          </button>
+        </div>
+        
+        <div id="errorMsg" class="wk-form-error hidden"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    if (getToken()) {
+      window.location.href = 'index.html';
+    }
+
+    document.getElementById('passwordToggle').addEventListener('click', function() {
+      const passwordInput = document.getElementById('password');
+      const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      passwordInput.setAttribute('type', type);
+      
+      this.textContent = type === 'password' ? '👁️' : '🔒';
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorMsg = document.getElementById('errorMsg');
+      const submitBtn = document.getElementById('submitBtn');
+      const spinner = submitBtn.querySelector('.wk-loading-spinner');
+      
+      errorMsg.textContent = '';
+      errorMsg.classList.add('hidden');
+      
+      if (!username.trim() || !password.trim()) {
+        errorMsg.textContent = 'Пожалуйста, заполните все поля';
+        errorMsg.classList.remove('hidden');
+        return;
+      }
+      
+      submitBtn.disabled = true;
+      spinner.classList.remove('hidden');
+      
+      try {
+        const success = await login(username, password);
+        
+        if (success) {
+          submitBtn.textContent = 'Успешно!';
+          setTimeout(() => {
+            window.location.href = 'index.html';
+          }, 500);
+        } else {
+          errorMsg.textContent = 'Неверный логин или пароль';
+          errorMsg.classList.remove('hidden');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        errorMsg.textContent = 'Ошибка входа. Пожалуйста, попробуйте позже.';
+        errorMsg.classList.remove('hidden');
+      } finally {
+        submitBtn.disabled = false;
+        spinner.classList.add('hidden');
+        submitBtn.textContent = 'Войти в систему';
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('username').focus();
+    });
+
+    document.getElementById('username').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('password').focus();
+      }
+    });
+
+    document.getElementById('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+      }
+    });
+  </script>
+</body>
+</html>

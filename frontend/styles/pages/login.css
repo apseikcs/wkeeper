@@ -1,0 +1,18 @@
+.wk-base { background: linear-gradient(135deg, rgb(var(--color-primary) / 0.05) 0%, rgb(var(--color-gray-50)) 100%); }
+.wk-btn { width:100%; padding: var(--space-3) var(--space-6); }
+.wk-card { padding: var(--space-8); box-shadow: var(--shadow-lg); max-width:400px; }
+
+.login-container { min-height:100vh; display:flex; align-items:center; justify-content:center; padding: var(--space-4); }
+.login-brand { text-align:center; margin-bottom: var(--space-8); }
+.brand-logo { width:64px; height:64px; margin:0 auto var(--space-4); background: rgb(var(--color-primary)); border-radius: var(--radius-lg); display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; font-size:1.5rem; }
+.brand-name { font-size:1.875rem; font-weight:700; color: rgb(var(--color-gray-900)); margin:0; }
+.brand-subtitle { font-size:1rem; color: rgb(var(--color-gray-500)); margin-top: var(--space-1); }
+
+.password-wrapper { position:relative; }
+.password-toggle { position:absolute; right: var(--space-3); top:50%; transform: translateY(-50%); background:none; border:none; color: rgb(var(--color-gray-500)); cursor:pointer; padding: var(--space-1); }
+.password-toggle:hover { color: rgb(var(--color-gray-700)); }
+
+.fade-in { animation: fadeIn 0.5s ease-out; }
+@keyframes fadeIn { from { opacity:0; transform: translateY(10px);} to { opacity:1; transform: translateY(0);} }
+
+@media (max-width:480px) { .wk-card { padding: var(--space-6); } .brand-logo { width:48px; height:48px; font-size:1.25rem; } .brand-name { font-size:1.5rem; } }

@@ -1,0 +1,12 @@
+.modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:50; padding: var(--space-4); }
+.modal-card { background: white; border-radius: var(--radius-lg); padding: var(--space-6); width:100%; max-width:420px; max-height:90vh; overflow-y:auto; box-shadow: var(--shadow-lg); }
+
+.table-container { overflow-x: auto; margin-bottom: var(--space-6); }
+
+.status-available { color: rgb(var(--color-success)); font-weight:600; }
+.status-assigned { color: rgb(var(--color-warning)); font-weight:600; }
+.status-broken { color: rgb(var(--color-danger)); font-weight:600; }
+.status-maintenance { color: rgb(var(--color-primary)); font-weight:600; }
+
+.action-buttons { display:flex; gap: var(--space-2); flex-wrap:wrap; }
+@media (max-width:640px) { .action-buttons { flex-direction:column; align-items:flex-start; } }
