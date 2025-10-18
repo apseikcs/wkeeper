@@ -317,14 +317,14 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
   })
   const rows = await prisma.$queryRaw<Array<{ supplierId: number, productId: number, name: string, total: number }>>`
     select 
-      t.supplierId as supplierId,
-      t.productId as productId,
+      t."supplierId" as "supplierId",
+      t."productId" as "productId",
       p.name as name,
       CAST(CAST(sum(t.delta) AS INTEGER) AS REAL) as total
     from "transaction" t
-    join product p on p.id = t.productId
-    where t.supplierId is not null and t.type = 'in'
-    group by t.supplierId, t.productId
+    join product p on p.id = t."productId"
+    where t."supplierId" is not null and t.type = 'in'
+    group by t."supplierId", t."productId"
   `
   const map: Record<number, Array<{ productId: number, name: string, total: number }>> = {}
   rows.forEach(r=>{
