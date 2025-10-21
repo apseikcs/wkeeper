@@ -34,8 +34,8 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
-        <nav class="wk-nav">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
+        <nav class="wk-nav grow-1 items-center">
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
           <a class="wk-nav-item" href="reports.html">Отчёты</a>
           <a class="wk-nav-item" href="workers.html">Сотрудники</a>
@@ -43,7 +43,7 @@
           <a class="wk-nav-item" href="destinations.html">Объекты</a>
         </nav>
         
-        <div class="wk-flex wk-gap-2 wk-flex-wrap">
+        <div class="wk-flex wk-gap-2 wk-flex-wrap justify-end">
           <button id="createProductBtn" class="wk-btn wk-btn-primary wk-btn-sm md:wk-btn">
             Создать товар
           </button>
@@ -56,7 +56,7 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row md:wk-items-center">
+      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row wk-items-center">
         <label class="wk-flex wk-items-center wk-gap-2">
           <span class="wk-text-sm wk-font-semibold">Поиск</span>
           <div class="search-wrap">
@@ -336,9 +336,9 @@
           <td>${p.unit}</td>
           <td>
             <div class="wk-flex wk-gap-1 wk-flex-wrap">
-              <button class="wk-btn wk-btn-primary wk-btn-sm" data-id="${p.id}" data-action="in">+ Приход</button>
-              <button class="wk-btn wk-btn-secondary wk-btn-sm" data-id="${p.id}" data-action="out">- Расход</button>
-              <button class="wk-btn wk-btn-danger wk-btn-sm" data-id="${p.id}" data-action="delete">Удалить</button>
+              <button class="wk-btn wk-btn-primary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="in">+ Приход</button>
+              <button class="wk-btn wk-btn-secondary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="out">- Расход</button>
+              <button class="wk-btn wk-btn-danger wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="delete">Удалить</button>
             </div>
           </td>`;
         tbody.appendChild(tr);

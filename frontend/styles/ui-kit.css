@@ -1,6 +1,4 @@
-/* ===== ДИЗАЙН-ТОКЕНЫ ===== */
 :root {
-  /* Цвета - RGB формат для поддержки прозрачности в Tailwind */
   --color-primary: 37 99 235;
   --color-primary-dark: 29 78 216;
   --color-danger: 220 38 38;
@@ -17,7 +15,6 @@
   --color-gray-800: 31 41 55;
   --color-gray-900: 17 24 39;
   
-  /* Отступы */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -27,29 +24,26 @@
   --space-8: 2rem;
   --space-10: 2.5rem;
   
-  /* Скругления */
   --radius-sm: 0.25rem;
   --radius: 0.5rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.75rem;
   
-  /* Тени */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  box-sizing: border-box;
 }
 
-/* ===== БАЗОВЫЕ СТИЛИ ===== */
 .wk-base {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   line-height: 1.5;
   color: rgb(var(--color-gray-800));
 }
 
-/* ===== КОМПОНЕНТЫ ===== */
 
-/* Кнопки */
 .wk-btn {
   display: inline-flex;
   align-items: center;
@@ -133,7 +127,6 @@
   line-height: 1.5rem;
 }
 
-/* Карточки */
 .wk-card {
   background: white;
   border: 1px solid rgb(var(--color-gray-200));
@@ -162,7 +155,6 @@
   color: rgb(var(--color-gray-600));
 }
 
-/* Формы */
 .wk-form-group {
   margin-bottom: var(--space-4);
 }
@@ -176,7 +168,7 @@
 }
 
 .wk-form-input {
-  width: 100%;
+  width: 90%;
   padding: var(--space-2) var(--space-3);
   border: 1px solid rgb(var(--color-gray-300));
   border-radius: var(--radius);
@@ -208,7 +200,6 @@
   margin-top: var(--space-1);
 }
 
-/* Таблицы */
 .wk-table {
   width: 100%;
   border-collapse: collapse;
@@ -239,7 +230,6 @@
   padding: var(--space-2) var(--space-3);
 }
 
-/* Навигация */
 .wk-nav {
   display: flex;
   gap: var(--space-2);
@@ -347,7 +337,6 @@
   color: rgb(var(--color-danger));
 }
 
-/* Макет */
 .wk-container {
   width: 100%;
   max-width: 1200px;
@@ -381,9 +370,9 @@
 @media (min-width: 768px) {
   .wk-grid-cols-md-2 { grid-template-columns: repeat(2, 1fr); }
   .wk-grid-cols-md-3 { grid-template-columns: repeat(3, 1fr); }
+  .w-full { width: 100%; };
 }
 
-/* Утилиты */
 .wk-sr-only {
   position: absolute;
   width: 1px;
@@ -416,10 +405,12 @@
 .wk-mb-6 { margin-bottom: var(--space-6); }
 .wk-mt-2 { margin-top: var(--space-2); }
 .wk-mt-4 { margin-top: var(--space-4); }
+.wk-mt-6 { margin-top: var(--space-6); }
 
-.wk-p-4 { padding: var(--space-4); }
+.wk-p-4 { padding: var(--space-2); }
 .wk-p-6 { padding: var(--space-6); }
 
+.wk-gap-1 { gap: var(--space-1); }
 .wk-gap-2 { gap: var(--space-2); }
 .wk-gap-4 { gap: var(--space-4); }
 
@@ -428,11 +419,7 @@
 .wk-justify-between { justify-content: space-between; }
 .wk-flex-wrap { flex-wrap: wrap; }
 
-/* helper: поддержка обоих типов скрытия, чтобы js и разметка работали одинаково */
 .hidden,
 .wk-hidden {
 	display: none !important;
 }
-
-/* необязательно: быстрый смач для видимости (если потребуется) */
-/* .visible, .wk-visible { display: block !important; } */
