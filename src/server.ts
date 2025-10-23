@@ -630,7 +630,8 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     const type = String(req.query.type)
     const from = req.query.from ? new Date(String(req.query.from)) : undefined
     const to = req.query.to ? new Date(String(req.query.to)) : undefined
-    const format = String(req.query.format || 'csv').toLowerCase()
+    // default export format is Excel (XLSX) — frontend now treats XLS as primary
+    const format = String(req.query.format ?? 'excel').toLowerCase()
     const extra = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       threshold: req.query.threshold ? Number(req.query.threshold) : undefined,
@@ -714,7 +715,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     }
 
     if (format === 'pdf') {
-      const puppeteer = require('puppeteer')
       const tableHtml = ['<table role="table" style="border-collapse:collapse;width:100%">',
         '<thead><tr>',
         ...rows[0].map(h => `<th style="border:1px solid #ccc;padding:8px;background:#f3f4f6;text-align:left">${(h||'')}</th>`),
@@ -724,38 +724,34 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
         '</tbody></table>'
       ].join('\n')
 
-      const html = `
-        <!doctype html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-            <meta name="viewport" content="width=device-width,initial-scale=1" />
-            <!-- Noto Sans from Google (supports Cyrillic) -->
-            <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap" rel="stylesheet">
-            <style>
-              body { font-family: 'Noto Sans', sans-serif; font-size:12px; color:#111; padding:20px; }
-              h1 { font-size:16px; margin-bottom:8px; }
-              table { font-size:12px; }
-              th { background:#f3f4f6; font-weight:700; }
-              td, th { border:1px solid #ddd; padding:6px; vertical-align:top; }
-              @media print {
-                body { -webkit-print-color-adjust: exact; }
-              }
-            </style>
-          </head>
-          <body>
-            <h1>Отчет: ${type || ''} — ${ts}</h1>
-            ${tableHtml}
-          </body>
-        </html>
-      `
+      const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge" /><meta name="viewport" content="width=device-width,initial-scale=1" /><link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap" rel="stylesheet"><style>body { font-family: 'Noto Sans', sans-serif; font-size:12px; color:#111; padding:20px; }h1 { font-size:16px; margin-bottom:8px; }table { font-size:12px; }th { background:#f3f4f6; font-weight:700; }td, th { border:1px solid #ddd; padding:6px; vertical-align:top; }@media print { body { -webkit-print-color-adjust: exact; } }</style></head><body><h1>Отчет: ${type || ''} — ${ts}</h1>${tableHtml}</body></html>`
 
-      // launch puppeteer
-      const browser = await puppeteer.launch({
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      })
+      let browser: any = null
       try {
+        try {
+          const chrome = require('chrome-aws-lambda')
+          const puppeteerCore = require('puppeteer-core')
+          const execPath = await chrome.executablePath
+          browser = await puppeteerCore.launch({
+            args: (chrome.args || []).concat(['--no-sandbox', '--disable-setuid-sandbox']),
+            executablePath: execPath || undefined,
+            headless: chrome.headless || true,
+            defaultViewport: { width: 1200, height: 800 }
+          })
+        } catch (errChrome) {
+          try {
+            const puppeteer = require('puppeteer')
+            browser = await puppeteer.launch({
+              args: ['--no-sandbox', '--disable-setuid-sandbox'],
+              headless: true,
+              defaultViewport: { width: 1200, height: 800 }
+            })
+          } catch (errPuppeteer) {
+            console.error('PDF export failed: no chromium runtime available', { errChrome, errPuppeteer })
+            return res.status(501).json({ error: 'PDF export not available in this deployment. Install chrome-aws-lambda / puppeteer-core or enable a Chromium binary.' })
+          }
+        }
+
         const page = await browser.newPage()
         await page.setContent(html, { waitUntil: 'networkidle0' })
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: 20, bottom: 20, left: 20, right: 20 } })
@@ -764,8 +760,11 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
         res.setHeader('Content-Length', String(pdfBuffer.length))
         return res.end(pdfBuffer)
+      } catch (err) {
+        console.error('PDF generation error', err)
+        return res.status(500).json({ error: 'failed to generate PDF (see server logs for details)' })
       } finally {
-        await browser.close()
+        try { if (browser) await browser.close() } catch (ignore) {}
       }
     }
 

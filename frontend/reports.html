@@ -15,25 +15,36 @@
     <header class="wk-page-header">
       <div class="wk-flex wk-flex-col wk-gap-3 sm:wk-flex-row sm:wk-items-center sm:wk-gap-4">
         <h1 class="wk-page-title">Отчёты</h1>
-        <nav class="wk-nav">
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
+        <nav class="wk-nav grow-1 items-center">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
           <a class="wk-nav-item active" href="reports.html">Отчёты</a>
           <a class="wk-nav-item" href="workers.html">Сотрудники</a>
           <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
           <a class="wk-nav-item" href="destinations.html">Объекты</a>
+          <a class="wk-nav-item" href="tools.html">Инструменты</a>
         </nav>
       </div>
-      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
-    </header>
+    </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-4">
+      <div class="wk-flex wk-flex-col gap-6 flex-wrap">
         <div class="date-controls">
           <div class="wk-flex wk-items-center wk-gap-2 wk-flex-wrap">
             <span class="wk-font-semibold">Период отчётов:</span>
             <label class="wk-flex wk-items-center wk-gap-1">
-              с <input type="date" id="dateFrom" class="wk-form-input">
+              <span class="w-5">с</span> <input type="date" id="dateFrom" class="wk-form-input">
             </label>
             <label class="wk-flex wk-items-center wk-gap-1">
               по <input type="date" id="dateTo" class="wk-form-input">
@@ -46,17 +57,17 @@
           </div>
         </div>
         
-        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3">
-          <p class="wk-text-sm wk-text-muted">
-            Период применяется ко всем отчётам ниже, включая экспорт проводок.
-          </p>
-          
+        <div class="wk-flex flex-col gap-4 flex-wrap">          
           <div class="export-controls">
-            <button id="exportAllTx" class="wk-btn wk-btn-primary" type="button">Экспорт проводок в CSV</button>
-            <button id="exportAllTxXls" class="wk-btn wk-btn-secondary wk-btn-sm" type="button">XLS</button>
+            <!-- main export method: Excel (XLSX) -->
+            <button id="exportAllTx" class="wk-btn wk-btn-primary" type="button">Экспорт (XLS)</button>
+            <!-- optional PDF export -->
             <button id="exportAllTxPdf" class="wk-btn wk-btn-secondary wk-btn-sm" type="button">PDF</button>
           </div>
-        </div>
+           <p class="wk-text-sm wk-text-muted">
+             Период применяется ко всем отчётам ниже, включая экспорт проводок.
+           </p>
+         </div>
       </div>
     </div>
 
@@ -103,8 +114,7 @@
             <span class="wk-loading-spinner hidden"></span>
             Обновить
           </button>
-          <button id="exportTop" class="wk-btn wk-btn-primary">CSV</button>
-          <button id="exportTopXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+          <button id="exportTop" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
           <button id="exportTopPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
         </div>
       </div>
@@ -137,8 +147,7 @@
               <span class="wk-loading-spinner hidden"></span>
               Обновить
             </button>
-            <button id="exportLow" class="wk-btn wk-btn-primary">CSV</button>
-            <button id="exportLowXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportLow" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
             <button id="exportLowPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
@@ -168,8 +177,7 @@
             <span class="wk-loading-spinner hidden"></span>
             Обновить
           </button>
-          <button id="exportWorkers" class="wk-btn wk-btn-primary">CSV</button>
-          <button id="exportWorkersXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+          <button id="exportWorkers" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
           <button id="exportWorkersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
         </div>
       </div>
@@ -203,8 +211,7 @@
               <span class="wk-loading-spinner hidden"></span>
               Обновить
             </button>
-            <button id="exportForecast" class="wk-btn wk-btn-primary">CSV</button>
-            <button id="exportForecastXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportForecast" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
             <button id="exportForecastPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
@@ -236,8 +243,7 @@
               <span class="wk-loading-spinner hidden"></span>
               Обновить
             </button>
-            <button id="exportDestinations" class="wk-btn wk-btn-primary">CSV</button>
-            <button id="exportDestinationsXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportDestinations" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
             <button id="exportDestinationsPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
@@ -270,8 +276,7 @@
               <span class="wk-loading-spinner hidden"></span>
               Обновить
             </button>
-            <button id="exportSuppliers" class="wk-btn wk-btn-primary">CSV</button>
-            <button id="exportSuppliersXls" class="wk-btn wk-btn-secondary wk-btn-sm">XLS</button>
+            <button id="exportSuppliers" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
             <button id="exportSuppliersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
@@ -830,10 +835,17 @@
             const a = document.createElement('a');
             a.href = url;
             
+            // Prefer server filename when present, otherwise build sensible fallback
             const contentDisposition = response.headers.get('content-disposition');
             const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
-            a.download = filenameMatch ? filenameMatch[1] : `${type}_${new Date().toISOString().split('T')[0]}.csv`;
-            
+            if (filenameMatch) {
+              a.download = filenameMatch[1];
+            } else {
+              const fmt = extra && extra.format ? String(extra.format).toLowerCase() : 'csv';
+              const ext = fmt === 'excel' ? 'xlsx' : fmt === 'pdf' ? 'pdf' : 'csv';
+              a.download = `${type}_${new Date().toISOString().split('T')[0]}.${ext}`;
+            }
+
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -854,7 +866,7 @@
           document.getElementById('dateTo').value = '';
           loadAllReports();
         });
-
+ 
         document.getElementById('refreshTop').addEventListener('click', () => ReportSections.loadTopProducts());
         document.getElementById('refreshLow').addEventListener('click', () => ReportSections.loadLowStock());
         document.getElementById('refreshWorkers').addEventListener('click', () => ReportSections.loadWorkerPerformance());
@@ -879,54 +891,47 @@
             }
           });
         }
-
-        attachExport('exportAllTx', 'transactions', {});
-        attachExport('exportAllTxXls', 'transactions', { format: 'excel' });
+ 
+        attachExport('exportAllTx', 'transactions', { format: 'excel' });
         attachExport('exportAllTxPdf', 'transactions', { format: 'pdf' });
-
-        attachExport('exportTop', 'top-products', { limit: 100 });
-        attachExport('exportTopXls', 'top-products', { limit: 100, format: 'excel' });
+ 
+        attachExport('exportTop', 'top-products', { limit: 100, format: 'excel' });
         attachExport('exportTopPdf', 'top-products', { limit: 100, format: 'pdf' });
-
-        attachExport('exportLow', 'low-stock', { threshold: Number(document.getElementById('lowThreshold').value) || 10 });
-        attachExport('exportLowXls', 'low-stock', { format: 'excel' });
+ 
+        attachExport('exportLow', 'low-stock', { threshold: Number(document.getElementById('lowThreshold').value) || 10, format: 'excel' });
         attachExport('exportLowPdf', 'low-stock', { format: 'pdf' });
-
-        attachExport('exportWorkers', 'worker-performance', {});
-        attachExport('exportWorkersXls', 'worker-performance', { format: 'excel' });
+ 
+        attachExport('exportWorkers', 'worker-performance', { format: 'excel' });
         attachExport('exportWorkersPdf', 'worker-performance', { format: 'pdf' });
-
-        attachExport('exportForecast', 'consumption-forecast', { days: Number(document.getElementById('forecastDays').value) || 30 });
-        attachExport('exportForecastXls', 'consumption-forecast', { format: 'excel' });
+ 
+        attachExport('exportForecast', 'consumption-forecast', { days: Number(document.getElementById('forecastDays').value) || 30, format: 'excel' });
         attachExport('exportForecastPdf', 'consumption-forecast', { format: 'pdf' });
-
-        attachExport('exportDestinations', 'destination-stats', {});
-        attachExport('exportDestinationsXls', 'destination-stats', { format: 'excel' });
+ 
+        attachExport('exportDestinations', 'destination-stats', { format: 'excel' });
         attachExport('exportDestinationsPdf', 'destination-stats', { format: 'pdf' });
-
-        attachExport('exportSuppliers', 'supplier-stats', {});
-        attachExport('exportSuppliersXls', 'supplier-stats', { format: 'excel' });
+ 
+        attachExport('exportSuppliers', 'supplier-stats', { format: 'excel' });
         attachExport('exportSuppliersPdf', 'supplier-stats', { format: 'pdf' });
-
-        document.getElementById('logoutBtn').addEventListener('click', logout);
-      }
-      
-      async function loadAllReports() {
-        try {
-          await Promise.all([
-            ReportSections.loadInventory(),
-            ReportSections.loadTransactions(),
-            ReportSections.loadTopProducts(),
-            ReportSections.loadLowStock(),
-            ReportSections.loadWorkerPerformance(),
-            ReportSections.loadConsumptionForecast(),
-            ReportSections.loadDestinationStats(),
-            ReportSections.loadSupplierStats()
-          ]);
-        } catch (error) {
-          Utils.showNotification('Не удалось загрузить некоторые отчеты', 'error');
-        }
-      }
+ 
+         document.getElementById('logoutBtn').addEventListener('click', logout);
+       }
+       
+       async function loadAllReports() {
+         try {
+           await Promise.all([
+             ReportSections.loadInventory(),
+             ReportSections.loadTransactions(),
+             ReportSections.loadTopProducts(),
+             ReportSections.loadLowStock(),
+             ReportSections.loadWorkerPerformance(),
+             ReportSections.loadConsumptionForecast(),
+             ReportSections.loadDestinationStats(),
+             ReportSections.loadSupplierStats()
+           ]);
+         } catch (error) {
+           Utils.showNotification('Не удалось загрузить некоторые отчеты', 'error');
+         }
+       }
 
       function init() {
         initEventListeners();

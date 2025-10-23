@@ -8,14 +8,19 @@
   <link rel="stylesheet" href="styles/ui-kit.css">
   <link rel="stylesheet" href="styles/pages/index.css">
 </head>
-<body class="wk-base wk-p-4 md:wk-p-6">
-  <div class="wk-container">
+<body class="wk-base wk-p-4 xxs:p-none">
+  <div class="wk-container xxs:pl-2 xxs:pr-2">
     
     <header class="wk-page-header">
       <div>
         <h1 class="wk-page-title">Склад</h1>
       </div>
-      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
     </header>
     
     <div class="wk-grid wk-grid-cols-1 wk-grid-cols-md-3 wk-gap-4 wk-mb-6">
@@ -36,11 +41,13 @@
     <div class="wk-card wk-mb-4">
       <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
         <nav class="wk-nav grow-1 items-center">
+          <a class="wk-nav-item active" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
           <a class="wk-nav-item" href="reports.html">Отчёты</a>
           <a class="wk-nav-item" href="workers.html">Сотрудники</a>
           <a class="wk-nav-item" href="suppliers.html">Поставщики</a>
           <a class="wk-nav-item" href="destinations.html">Объекты</a>
+          <a class="wk-nav-item" href="tools.html">Инструменты</a>
         </nav>
         
         <div class="wk-flex wk-gap-2 wk-flex-wrap justify-end">
@@ -335,7 +342,7 @@
           <td>${p.quantity}</td>
           <td>${p.unit}</td>
           <td>
-            <div class="wk-flex wk-gap-1 wk-flex-wrap">
+            <div class="wk-flex wk-gap-1 wk-flex-wrap md:flex-nowrap">
               <button class="wk-btn wk-btn-primary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="in">+ Приход</button>
               <button class="wk-btn wk-btn-secondary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="out">- Расход</button>
               <button class="wk-btn wk-btn-danger wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="delete">Удалить</button>
@@ -503,7 +510,7 @@
         wrapper.innerHTML = `
           <div class="modal" data-modal="add-entity">
             <div class="modal-card">
-              <div class="wk-card-title wk-mb-4">Добавить поставщика</div>
+              <div class="wk-card-title wk-mb-4п">Добавить поставщика</div>
               <form id="addSupplierForm">
                 <div class="wk-form-group">
                   <label class="wk-form-label">Название</label>

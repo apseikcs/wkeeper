@@ -373,6 +373,12 @@
   .w-full { width: 100%; };
 }
 
+@media (max-width: 420px) {
+  body.wk-base { padding: var(--space-2) 0 ; } 
+  .wk-card { padding: var(--space-4); } 
+  .wk-container {padding: 0 var(--space-1) } 
+}
+
 .wk-sr-only {
   position: absolute;
   width: 1px;
