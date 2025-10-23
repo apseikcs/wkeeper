@@ -639,14 +639,50 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     }
     const ts = new Date().toISOString().slice(0,10)
 
+    // helper: build Content-Disposition supporting UTF-8 names (RFC5987)
+    // produce a readable ASCII fallback by transliterating common Cyrillic letters
+    function contentDispositionHeader(filename: string) {
+      // simple Cyrillic -> Latin map (extend if needed)
+      const map: Record<string,string> = {
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'y',
+        'к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f',
+        'х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya'
+      }
+
+      function translit(s: string) {
+        return s.split('').map(ch => {
+          if (ch.charCodeAt(0) < 128) return ch; // ASCII unchanged
+          const lower = ch.toLowerCase();
+          if (map[lower] !== undefined) {
+            // preserve capitalization roughly
+            const out = map[lower];
+            return ch === lower ? out : (out.charAt(0).toUpperCase() + out.slice(1));
+          }
+          // unknown non-ASCII -> replace with underscore
+          return '_';
+        }).join('')
+         .replace(/[^\w\-.() ]+/g, '_') // keep safe filename chars, replace others
+         .replace(/\s+/g, '_')          // spaces -> underscores
+         .replace(/_+/g, '_')           // collapse multiple underscores
+         .replace(/^_+|_+$/g, '')       // trim leading/trailing underscores
+      }
+
+      const fallback = translit(filename) || 'report'
+      // filename* uses percent-encoding of UTF-8 per RFC5987
+      return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    }
+
     if (format === 'csv') {
       const { csv, filename } = await exportToCsv(type, from, to, extra)
       res.setHeader('Content-Type', 'text/csv; charset=utf-8')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      // allow frontend JS to read Content-Disposition (filename*)
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
+      res.setHeader('Content-Disposition', contentDispositionHeader(filename))
       return res.send(csv)
     }
 
-    const { csv } = await exportToCsv(type, from, to, extra)
+    // get CSV content and the localized filename (may contain Cyrillic)
+    const { csv, filename: csvFilename } = await exportToCsv(type, from, to, extra)
     const lines = String(csv || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean)
 
     const parseCsvLine = (line: string) => {
@@ -666,6 +702,7 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     const rows = lines.map(l => parseCsvLine(l))
 
     if (format === 'excel' || format === 'xls' || format === 'xlsx') {
+      // Build Excel workbook from parsed CSV rows and stream as .xlsx
       const ExcelJS = require('exceljs')
       const wb = new ExcelJS.Workbook()
       wb.creator = 'warehouse-keeper'
@@ -674,14 +711,15 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
       if (rows.length === 0) {
         ws.addRow(['empty'])
       } else {
-        const header = rows[0].map(c => (c || '').trim())
+        const header = rows[0].map(c => (c || '').toString().trim())
         ws.addRow(header)
         for (let i = 1; i < rows.length; i++) {
-          ws.addRow(rows[i].map(c => (c || '').trim()))
+          ws.addRow(rows[i].map(c => (c || '').toString().trim()))
         }
 
+        // style header
         const headerRow = ws.getRow(1)
-        headerRow.eachCell((cell) => {
+        headerRow.eachCell((cell: any) => {
           cell.font = { bold: true }
           cell.fill = {
             type: 'pattern',
@@ -696,9 +734,10 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
 
         ws.views = [{ state: 'frozen', ySplit: 1 }]
 
-        ws.columns.forEach((col) => {
+        // auto-width-ish: compute column widths based on content (capped)
+        ws.columns.forEach((col: any) => {
           let max = 10
-          col.eachCell({ includeEmpty: true }, (cell) => {
+          col.eachCell({ includeEmpty: true }, (cell: any) => {
             const v = cell.value ? String(cell.value) : ''
             if (v.length > max) max = Math.min(80, v.length)
           })
@@ -706,67 +745,158 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
         })
       }
 
-      const buf = await wb.xlsx.writeBuffer()
-      const filename = `${type || 'report'}-${ts}.xlsx`
+      const outBuf = Buffer.from(await wb.xlsx.writeBuffer())
+
+      // prefer localized CSV filename, replace .csv with .xlsx; fallback to type-based name
+      const filenameBase = csvFilename && typeof csvFilename === 'string' ? csvFilename.replace(/\.csv$/i, '') : (type || 'report')
+      const filename = `${filenameBase}-${ts}.xlsx`
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-      res.setHeader('Content-Length', String(Buffer.byteLength(buf)))
-      return res.end(Buffer.from(buf))
+      // expose header so frontend can read the UTF-8 filename
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
+      res.setHeader('Content-Disposition', contentDispositionHeader(filename))
+      res.setHeader('Content-Length', String(outBuf.length))
+      return res.end(outBuf)
     }
 
+    // --- REPLACE: PDF generation using pdfmake (lighter than puppeteer) ---
     if (format === 'pdf') {
-      const tableHtml = ['<table role="table" style="border-collapse:collapse;width:100%">',
-        '<thead><tr>',
-        ...rows[0].map(h => `<th style="border:1px solid #ccc;padding:8px;background:#f3f4f6;text-align:left">${(h||'')}</th>`),
-        '</tr></thead>',
-        '<tbody>',
-        ...rows.slice(1).map(r => `<tr>${r.map(c => `<td style="border:1px solid #ccc;padding:6px">${(c||'')}</td>`).join('')}</tr>`),
-        '</tbody></table>'
-      ].join('\n')
-
-      const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge" /><meta name="viewport" content="width=device-width,initial-scale=1" /><link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap" rel="stylesheet"><style>body { font-family: 'Noto Sans', sans-serif; font-size:12px; color:#111; padding:20px; }h1 { font-size:16px; margin-bottom:8px; }table { font-size:12px; }th { background:#f3f4f6; font-weight:700; }td, th { border:1px solid #ddd; padding:6px; vertical-align:top; }@media print { body { -webkit-print-color-adjust: exact; } }</style></head><body><h1>Отчет: ${type || ''} — ${ts}</h1>${tableHtml}</body></html>`
-
-      let browser: any = null
-      try {
+      // helper: ensure fonts available (only local ./fonts, no network)
+      const fs = require('fs')
+      // Only use local fonts folder. No network fetches.
+      async function ensureFonts(): Promise<{ normal: string, bold: string } | null> {
         try {
-          const chrome = require('chrome-aws-lambda')
-          const puppeteerCore = require('puppeteer-core')
-          const execPath = await chrome.executablePath
-          browser = await puppeteerCore.launch({
-            args: (chrome.args || []).concat(['--no-sandbox', '--disable-setuid-sandbox']),
-            executablePath: execPath || undefined,
-            headless: chrome.headless || true,
-            defaultViewport: { width: 1200, height: 800 }
-          })
-        } catch (errChrome) {
+          const repoFonts = path.join(__dirname, '..', 'fonts')
+          const localNormal = path.join(repoFonts, 'NotoSans-Regular.ttf')
+          const localBold = path.join(repoFonts, 'NotoSans-Bold.ttf')
+
+          // If both present -> done
+          if (fs.existsSync(localNormal) && fs.existsSync(localBold)) {
+            return { normal: localNormal, bold: localBold }
+          }
+
+          // If only regular present, create a bold fallback by copying regular (acceptable for tabular PDF)
+          if (fs.existsSync(localNormal) && !fs.existsSync(localBold)) {
+            try {
+              fs.copyFileSync(localNormal, localBold)
+              console.warn('NotoSans-Bold not found; using Regular as Bold fallback.')
+              return { normal: localNormal, bold: localBold }
+            } catch (copyErr) {
+              console.error('failed to create bold fallback from regular font', copyErr)
+              return null
+            }
+          }
+
+          // Fonts are missing
+          return null
+        } catch (err) {
+          console.error('fonts ensure error', err)
+          return null
+        }
+      }
+
+      const fontsPaths = await ensureFonts()
+      if (!fontsPaths) {
+        console.error('PDF export: fonts not available')
+        return res.status(501).json({ error: 'PDF export unavailable: missing fonts. Add fonts/NotoSans-*.ttf to the repository.' })
+      }
+ 
+      try {
+        // Use pdfmake's server-side PdfPrinter (try a couple of common require paths)
+        let PdfPrinter: any = null
+        try {
+          PdfPrinter = require('pdfmake/src/printer')
+        } catch (e1) {
           try {
-            const puppeteer = require('puppeteer')
-            browser = await puppeteer.launch({
-              args: ['--no-sandbox', '--disable-setuid-sandbox'],
-              headless: true,
-              defaultViewport: { width: 1200, height: 800 }
-            })
-          } catch (errPuppeteer) {
-            console.error('PDF export failed: no chromium runtime available', { errChrome, errPuppeteer })
-            return res.status(501).json({ error: 'PDF export not available in this deployment. Install chrome-aws-lambda / puppeteer-core or enable a Chromium binary.' })
+            const pm = require('pdfmake')
+            // some package layouts export a factory/object; try common exports
+            PdfPrinter = pm && (pm.Printer || pm.PdfPrinter || pm.default || pm)
+          } catch (e2) {
+            console.error('pdfmake require error', e1, e2)
+            return res.status(500).json({ error: 'pdfmake module not found. Run: npm install pdfmake' })
           }
         }
+        const fontsObj: any = {
+           NotoSans: {
+             normal: fontsPaths.normal,
+             bold: fontsPaths.bold
+           }
+         }
+         const printer = new PdfPrinter(fontsObj)
 
-        const page = await browser.newPage()
-        await page.setContent(html, { waitUntil: 'networkidle0' })
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: 20, bottom: 20, left: 20, right: 20 } })
-        const filename = `${type || 'report'}-${ts}.pdf`
-        res.setHeader('Content-Type', 'application/pdf')
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-        res.setHeader('Content-Length', String(pdfBuffer.length))
-        return res.end(pdfBuffer)
+        // build doc table body: first row header
+        // explicit types avoid TS inferring never[] and causing push() type errors
+        const header: string[] = rows.length ? rows[0].map(h => (h || '').toString()) : []
+        const body: Array<Array<any>> = []
+        if (header.length) {
+          body.push(header.map(h => ({ text: h, style: 'tableHeader' })))
+          for (let i = 1; i < rows.length; i++) {
+            body.push(rows[i].map(c => ({ text: (c || '').toString() })))
+          }
+        } else {
+          body.push([{ text: 'empty', colSpan: 1 } as any])
+        }
+
+        // adapt orientation/size/widths for wide tables so they fit the page
+        const colCount = header.length || 0
+        const pageOrientation = colCount > 6 ? 'landscape' : 'portrait'
+        const computedFontSize = colCount > 10 ? 8 : (colCount > 6 ? 9 : 10)
+        // use '*' for normal cases (equal distribution), but for very many columns allow 'auto'
+        const widths = header.length ? header.map(() => (colCount > 12 ? 'auto' : '*')) : ['*']
+
+        const compactTableLayout: any = {
+          hLineWidth: (i: number, node: any) => 0.5,
+          vLineWidth: (i: number, node: any) => 0.5,
+          paddingLeft: (i: number, node: any) => 6,
+          paddingRight: (i: number, node: any) => 6,
+          paddingTop: (i: number, node: any) => 4,
+          paddingBottom: (i: number, node: any) => 4
+        }
+
+        const docDefinition: any = {
+          pageSize: 'A4',
+          pageOrientation,
+          content: [
+            { text: `Отчет: ${type || ''} — ${ts}`, style: 'title' },
+            {
+              table: {
+                headerRows: header.length ? 1 : 0,
+                widths,
+                body
+              },
+              layout: compactTableLayout,
+              margin: [0, 8, 0, 0]
+            }
+          ],
+          styles: {
+            title: { fontSize: 14, bold: true, margin: [0, 0, 0, 8] },
+            tableHeader: { bold: true, fillColor: '#f3f4f6' }
+          },
+          defaultStyle: { font: 'NotoSans', fontSize: computedFontSize, lineHeight: 1.05 }
+        }
+
+        const pdfDoc = printer.createPdfKitDocument(docDefinition)
+        const chunks: any[] = []
+        pdfDoc.on('data', (chunk: any) => chunks.push(chunk))
+        pdfDoc.on('end', () => {
+          const result = Buffer.concat(chunks)
+          // prefer localized CSV filename; replace .csv with .pdf
+          const filenameBasePdf = csvFilename && typeof csvFilename === 'string' ? csvFilename.replace(/\.csv$/i, '') : (type || 'report')
+          const filename = `${filenameBasePdf}-${ts}.pdf`
+          res.setHeader('Content-Type', 'application/pdf')
+          // expose header so frontend can read the UTF-8 filename
+          res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
+          res.setHeader('Content-Disposition', contentDispositionHeader(filename))
+          res.setHeader('Content-Length', String(result.length))
+          return res.end(result)
+        })
+        pdfDoc.end()
+        return
       } catch (err) {
-        console.error('PDF generation error', err)
+        console.error('PDF generation error (pdfmake)', err)
         return res.status(500).json({ error: 'failed to generate PDF (see server logs for details)' })
-      } finally {
-        try { if (browser) await browser.close() } catch (ignore) {}
       }
     }
+    // --- end PDF branch ---
 
     return res.status(400).json({ error: 'unknown format' })
   } catch (e) {
@@ -946,5 +1076,13 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
   }
 });
 
+// report fonts availability on startup (helpful debug)
+{
+  const fs = require('fs')
+  const repoFonts = path.join(__dirname, '..', 'fonts')
+  const normal = fs.existsSync(path.join(repoFonts, 'NotoSans-Regular.ttf'))
+  const bold = fs.existsSync(path.join(repoFonts, 'NotoSans-Bold.ttf'))
+  console.info(`Fonts: NotoSans-Regular=${normal}, NotoSans-Bold=${bold}`)
+}
 const port = process.env.PORT ?? 3000
 app.listen(port, () => console.log(`server started on http://localhost:${port}`))

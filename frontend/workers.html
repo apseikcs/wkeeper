@@ -23,7 +23,7 @@
     </header>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+      <div class="wk-flex wk-flex-col flex-wrap wk-gap-4">
         <nav class="wk-nav">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
@@ -138,11 +138,11 @@
         const currentTool = currentAssignment ? currentAssignment.tool : null;
 
         const card = document.createElement('div');
-        card.className = 'wk-card worker-card';
+        card.className = 'wk-card worker-card flex flex-col gap-2';
         card.innerHTML = `
-          <div class="worker-card__header">
+          <div class="worker-card__header text-xl font-semibold">
             <h3 class="worker-card__name">${escapeHtml(worker.fullName)}</h3>
-            <div class="wk-flex wk-items-center wk-gap-2">
+            <div class="wk-flex wk-items-center gap-2 mt-2 mb-2">
               <span class="wk-badge wk-badge-primary">#${worker.id}</span>
               <button class="text-gray-400 hover:text-red-500 transition-colors" 
                       data-id="${worker.id}" aria-label="Удалить сотрудника">
@@ -171,10 +171,10 @@
           
           <div class="worker-card__actions">
             ${ currentTool 
-               ? `<button class="wk-btn wk-btn-secondary wk-btn-sm unassign-btn" data-worker="${worker.id}" data-tool="${currentTool.id}">
+               ? `<button class="wk-btn wk-btn-secondary wk-btn-sm unassign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}" data-tool="${currentTool.id}">
                     Снять инструмент
                   </button>`
-               : `<button class="wk-btn wk-btn-primary wk-btn-sm assign-btn" data-worker="${worker.id}">
+               : `<button class="wk-btn wk-btn-primary wk-btn-sm assign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}">
                     Выдать инструмент
                   </button>` }
           </div>
@@ -403,6 +403,12 @@
           modalRoot.innerHTML = '';
         }
       });
+
+      modalRoot.querySelector('.modal-card').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      })
     }
 
     async function handleAddWorker(e) {

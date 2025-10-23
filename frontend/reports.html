@@ -13,7 +13,7 @@
   <div class="wk-container">
     
     <header class="wk-page-header">
-      <div class="wk-flex wk-flex-col wk-gap-3 sm:wk-flex-row sm:wk-items-center sm:wk-gap-4">
+      <div class="wk-flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
         <h1 class="wk-page-title">Отчёты</h1>
       </div>
       <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
@@ -25,7 +25,7 @@
     </header>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
+      <div class="wk-flex flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
         <nav class="wk-nav grow-1 items-center">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
@@ -39,7 +39,7 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col gap-6 flex-wrap">
+      <div class="wk-flex flex-col gap-6 flex-wrap">
         <div class="date-controls">
           <div class="wk-flex wk-items-center wk-gap-2 wk-flex-wrap">
             <span class="wk-font-semibold">Период отчётов:</span>
@@ -107,7 +107,7 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+      <div class="wk-flex flex-col flex-wrap gap-3 wk-mb-4">
         <h2 class="wk-card-title">Топ товаров</h2>
         <div class="export-controls">
           <button id="refreshTop" class="wk-btn wk-btn-primary">
@@ -135,9 +135,9 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+      <div class="wk-flex flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between gap-3 wk-mb-4">
         <h2 class="wk-card-title">Низкий остаток</h2>
-        <div class="wk-flex wk-items-center wk-gap-3 wk-flex-wrap">
+        <div class="wk-flex wk-items-center gap-3 wk-flex-wrap">
           <label class="wk-flex wk-items-center wk-gap-1">
             <span class="wk-text-sm">Порог</span>
             <input id="lowThreshold" type="number" value="10" min="1" class="wk-form-input" style="width: 80px;">
@@ -170,7 +170,7 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+      <div class="wk-flex flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between gap-3 wk-mb-4">
         <h2 class="wk-card-title">Рейтинг сотрудников</h2>
         <div class="export-controls">
           <button id="refreshWorkers" class="wk-btn wk-btn-primary">
@@ -199,9 +199,9 @@
     </div>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+      <div class="wk-flex flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between gap-3 wk-mb-4">
         <h2 class="wk-card-title">Прогноз расхода (риск за 30 дней)</h2>
-        <div class="wk-flex wk-items-center wk-gap-3 wk-flex-wrap">
+        <div class="wk-flex wk-items-center gap-3 wk-flex-wrap">
           <label class="wk-flex wk-items-center wk-gap-1">
             <span class="wk-text-sm">Период (дней)</span>
             <input id="forecastDays" type="number" value="30" min="7" class="wk-form-input" style="width: 80px;">
@@ -236,7 +236,7 @@
 
     <div class="wk-grid wk-grid-cols-1 lg:wk-grid-cols-2 wk-gap-4">
       <div class="wk-card">
-        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <div class="wk-flex flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between gap-3 wk-mb-4">
           <h2 class="wk-card-title">Анализ по объектам</h2>
           <div class="export-controls">
             <button id="refreshDestinations" class="wk-btn wk-btn-primary">
@@ -269,7 +269,7 @@
       </div>
 
       <div class="wk-card">
-        <div class="wk-flex wk-flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between wk-gap-3 wk-mb-4">
+        <div class="wk-flex flex-col sm:wk-flex-row sm:wk-items-center sm:wk-justify-between gap-3 wk-mb-4">
           <h2 class="wk-card-title">Анализ по поставщикам</h2>
           <div class="export-controls">
             <button id="refreshSuppliers" class="wk-btn wk-btn-primary">
@@ -835,16 +835,26 @@
             const a = document.createElement('a');
             a.href = url;
             
-            // Prefer server filename when present, otherwise build sensible fallback
-            const contentDisposition = response.headers.get('content-disposition');
-            const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
-            if (filenameMatch) {
-              a.download = filenameMatch[1];
+            const contentDisposition = response.headers.get('content-disposition') || '';
+            // Prefer RFC5987 filename* (UTF-8 percent-encoded), then fallback to filename="..."
+            let filename = '';
+            const fnStar = contentDisposition.match(/filename\\*=UTF-8''([^;\\n\\r]+)/i);
+            if (fnStar && fnStar[1]) {
+              try {
+                filename = decodeURIComponent(fnStar[1]);
+              } catch (err) {
+                filename = fnStar[1];
+              }
             } else {
+              const fn = contentDisposition.match(/filename="([^"]+)"/);
+              if (fn && fn[1]) filename = fn[1];
+            }
+            if (!filename) {
               const fmt = extra && extra.format ? String(extra.format).toLowerCase() : 'csv';
               const ext = fmt === 'excel' ? 'xlsx' : fmt === 'pdf' ? 'pdf' : 'csv';
-              a.download = `${type}_${new Date().toISOString().split('T')[0]}.${ext}`;
+              filename = `${type}_${new Date().toISOString().split('T')[0]}.${ext}`;
             }
+            a.download = filename;
 
             document.body.appendChild(a);
             a.click();

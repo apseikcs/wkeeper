@@ -368,56 +368,56 @@ export async function exportToCsv(type: string, from?: Date, to?: Date, extra: a
   if (type === 'top-products') {
     const data = await getTopProducts(from, to, extra.limit || 100)
     const csv = toCsv(data, [
-      { key: 'name', title: 'Product' },
-      { key: 'total', title: 'Total Quantity' }
+      { key: 'name', title: 'Товар' },
+      { key: 'total', title: 'Расход' }
     ])
-    return { csv, filename: `top-products-${ts}.csv` }
+    return { csv, filename: `Топ-Товары-${ts}.csv` }
   }
   if (type === 'low-stock') {
     const data = await getLowStock(extra.threshold || 10)
     const csv = toCsv(data, [
       { key: 'id', title: 'ID' },
-      { key: 'name', title: 'Product' },
-      { key: 'quantity', title: 'Stock' }
+      { key: 'name', title: 'Товар' },
+      { key: 'quantity', title: 'Остаток' }
     ])
-    return { csv, filename: `low-stock-${ts}.csv` }
+    return { csv, filename: `Низкий остаток-${ts}.csv` }
   }
   if (type === 'worker-performance') {
     const data = await getWorkerPerformance(from, to)
     const csv = toCsv(data, [
-      { key: 'workerName', title: 'Worker' },
-      { key: 'transactionCount', title: 'Transaction Count' },
-      { key: 'totalQuantity', title: 'Total Quantity Moved' }
+      { key: 'workerName', title: 'Работник' },
+      { key: 'transactionCount', title: 'Кол-во операций' },
+      { key: 'totalQuantity', title: 'Всего товара в проводках' }
     ])
-    return { csv, filename: `worker-performance-${ts}.csv` }
+    return { csv, filename: `Статистика-Сотрудники-${ts}.csv` }
   }
   if (type === 'consumption-forecast') {
     const data = await getConsumptionForecast(extra.days || 30)
     const csv = toCsv(data.map(d => ({...d, daysToStockout: d.daysToStockout !== null ? Math.floor(d.daysToStockout) : ''})), [
-      { key: 'productName', title: 'Product' },
-      { key: 'currentStock', title: 'Current Stock' },
-      { key: 'avgDailyConsumption', title: 'Avg Daily Consumption' },
-      { key: 'daysToStockout', title: 'Days to Stockout' }
+      { key: 'productName', title: 'Товар' },
+      { key: 'currentStock', title: 'Остаток' },
+      { key: 'avgDailyConsumption', title: 'Сред. расход в день' },
+      { key: 'daysToStockout', title: 'Дней до израсходования' }
     ])
-    return { csv, filename: `consumption-forecast-${ts}.csv` }
+    return { csv, filename: `Прогноз-Расхода-${ts}.csv` }
   }
   if (type === 'destination-stats') {
     const data = await getDestinationStats(from, to)
     const csv = toCsv(data, [
-      { key: 'destinationName', title: 'Destination' },
-      { key: 'transactionCount', title: 'Transaction Count' },
-      { key: 'totalQuantity', title: 'Total Quantity Consumed' }
+      { key: 'destinationName', title: 'Объект' },
+      { key: 'transactionCount', title: 'Кол-во операций' },
+      { key: 'totalQuantity', title: 'Всего товара поставлено' }
     ])
-    return { csv, filename: `destination-stats-${ts}.csv` }
+    return { csv, filename: `Статистика-Объекты-${ts}.csv` }
   }
   if (type === 'supplier-stats') {
     const data = await getSupplierStats(from, to)
     const csv = toCsv(data, [
-      { key: 'supplierName', title: 'Supplier' },
-      { key: 'transactionCount', title: 'Transaction Count' },
-      { key: 'totalQuantity', title: 'Total Quantity Supplied' }
+      { key: 'supplierName', title: 'Поставщик' },
+      { key: 'transactionCount', title: 'Кол-во операций' },
+      { key: 'totalQuantity', title: 'Всего товара поставлено' }
     ])
-    return { csv, filename: `supplier-stats-${ts}.csv` }
+    return { csv, filename: `Статистика-Поставщики-${ts}.csv` }
   }
   if (type === 'transactions') {
     const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
@@ -441,16 +441,16 @@ export async function exportToCsv(type: string, from?: Date, to?: Date, extra: a
       destinationName: t.destination?.name || t.destinationName || ''
     })), [
       { key: 'id', title: 'ID' },
-      { key: 'date', title: 'Date' },
-      { key: 'productName', title: 'Product' },
-      { key: 'delta', title: 'Quantity' },
-      { key: 'type', title: 'Type' },
-      { key: 'supplierName', title: 'Supplier' },
-      { key: 'destinationName', title: 'Destination' },
-      { key: 'workerName', title: 'Worker' },
-      { key: 'note', title: 'Note' }
+      { key: 'date', title: 'Дата' },
+      { key: 'productName', title: 'Товар' },
+      { key: 'delta', title: 'Количество' },
+      { key: 'type', title: 'Тип' },
+      { key: 'supplierName', title: 'Поставщик' },
+      { key: 'destinationName', title: 'Объект' },
+      { key: 'workerName', title: 'Работник' },
+      { key: 'note', title: 'Примечание' }
     ])
-    return { csv, filename: `transactions-${ts}.csv` }
+    return { csv, filename: `Проводки-${ts}.csv` }
   }
   throw new Error('unknown export type')
 }

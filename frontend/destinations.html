@@ -11,10 +11,9 @@
 <body class="wk-base wk-p-4 md:wk-p-6">
   <div class="wk-container">
     
-    <header class="wk-page-header">
+    <header class="wk-page-header flex flex-row justify-between">
       <div>
         <h1 class="wk-page-title">Объекты</h1>
-        <p class="wk-text-muted">Управление объектами доставки и назначения</p>
       </div>
       <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -25,7 +24,7 @@
     </header>
 
     <div class="wk-card wk-mb-6">
-      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+      <div class="wk-flex wk-flex-col wk-gap-4 flex-wrap">
         <nav class="wk-nav">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
@@ -47,7 +46,7 @@
       Загрузка объектов...
     </div>
 
-    <div id="list" class="wk-grid wk-grid-cols-1 wk-grid-cols-sm-2 wk-grid-cols-lg-3 wk-gap-4">
+    <div id="list"class="wk-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 wk-gap-4">
     </div>
 
     <div id="emptyState" class="empty-state hidden">
@@ -141,7 +140,7 @@
       
       activeLocations.forEach(location => {
         const div = document.createElement('div');
-        div.className = 'wk-card';
+        div.className = 'wk-card flex flex-col gap-2';
         
         div.innerHTML = `
           <div class="wk-flex wk-items-center wk-justify-between wk-mb-3">

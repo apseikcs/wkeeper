@@ -12,10 +12,9 @@
 <body class="wk-base wk-p-4 md:wk-p-6">
   <div class="wk-container">
     
-    <header class="wk-page-header">
+    <header class="wk-page-header flex flex-row">
       <div>
-        <h1 class="wk-page-title">Управление поставщиками</h1>
-        <p class="wk-text-muted">Добавление и редактирование информации о поставщиках</p>
+        <h1 class="wk-page-title text-2xl">Управление поставщиками</h1>
       </div>
       <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -25,20 +24,27 @@
       </button>
     </header>
 
-    <nav class="wk-flex wk-flex-wrap wk-gap-2 wk-mb-6">
-      <a href="index.html" class="wk-btn wk-btn-secondary">Склад</a>
-      <a href="transactions.html" class="wk-btn wk-btn-secondary">Проводки</a>
-      <a href="reports.html" class="wk-btn wk-btn-secondary">Отчёты</a>
-      <a href="workers.html" class="wk-btn wk-btn-secondary">Сотрудники</a>
-      <a href="suppliers.html" class="wk-btn wk-btn-primary">Поставщики</a>
-      <a href="destinations.html" class="wk-btn wk-btn-secondary">Объекты</a>
-      <button id="addBtn" class="wk-btn wk-btn-primary wk-ml-auto wk-flex wk-items-center wk-gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-        Добавить поставщика
-      </button>
-    </nav>
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col flex-wrap wk-gap-4">
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="index.html">Склад</a>
+          <a class="wk-nav-item" href="transactions.html">Проводки</a>
+          <a class="wk-nav-item" href="reports.html">Отчёты</a>
+          <a class="wk-nav-item" href="workers.html">Сотрудники</a>
+          <a class="wk-nav-item active" href="suppliers.html">Поставщики</a>
+          <a class="wk-nav-item" href="destinations.html">Объекты</a>
+          <a class="wk-nav-item" href="tools.html">Инструменты</a>
+        </nav>
+        
+        <button id="addBtn" class="wk-btn wk-btn-primary wk-ml-auto wk-flex wk-items-center wk-gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          Добавить поставщика
+        </button>
+      </div>
+    </div>
+
 
     <main>
       <div id="loading" class="wk-flex wk-justify-center wk-items-center wk-p-8">
@@ -46,7 +52,7 @@
         <span class="wk-ml-2">Загрузка данных...</span>
       </div>
 
-      <div id="list" class="wk-grid wk-grid-cols-1 md:wk-grid-cols-2 lg:wk-grid-cols-3 wk-gap-4 wk-hidden">
+      <div id="list" class="wk-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 wk-gap-4 wk-hidden">
       </div>
 
       <div id="emptyState" class="wk-card wk-text-center wk-hidden">
@@ -182,7 +188,7 @@
       
       activeSuppliers.forEach(supplier => {
         const div = document.createElement('div');
-        div.className = 'wk-card card-fade-in';
+        div.className = 'wk-card card-fade-in flex flex-col gap-2';
         
         const suppliedProducts = (supplier.supplied || [])
           .map(item => `${escapeHtml(item.name)} (${item.total})`)

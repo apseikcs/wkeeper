@@ -11,15 +11,20 @@
 <body class="wk-base wk-p-4 md:wk-p-6">
   <div class="wk-container">
     
-    <header class="wk-page-header">
+    <header class="wk-page-header flex flex-row justify-between">
       <div>
-        <h1 class="wk-page-title">Инструменты</h1>
+        <h1 class="wk-page-title text-2xl">Инструменты</h1>
       </div>
-      <button id="logoutBtn" class="wk-btn wk-btn-secondary">Выйти</button>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
     </header>
 
     <div class="wk-card wk-mb-4">
-      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row md:wk-items-center md:wk-justify-between">
+      <div class="wk-flex wk-flex-col wk-gap-4 flex flex-wrap">
         <nav class="wk-nav">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
@@ -114,13 +119,13 @@
           <td>${escapeHtml(tool.name)}</td>
           <td class="${statusClass}">${escapeHtml(tool.status)}</td>
           <td>
-            <div class="action-buttons">
+            <div class="action-buttons gap-4">
               ${owner ? 
-                `<span class="wk-text-muted wk-text-sm">На ${escapeHtml(owner.fullName)}</span>
+                `<span class="wk-text-muted wk-text-sm">У ${escapeHtml(owner.fullName)}</span>
                  <button class="wk-btn wk-btn-danger wk-btn-sm unassign" data-tool="${tool.id}" data-owner="${owner.id}">Снять</button>` :
-                `<button class="wk-btn wk-btn-primary wk-btn-sm assign" data-tool="${tool.id}">Выдать</button>
-                 <button class="wk-btn wk-btn-secondary wk-btn-sm edit" data-id="${tool.id}">Изменить</button>
-                 <button class="wk-btn wk-btn-danger wk-btn-sm delete" data-id="${tool.id}">Удалить</button>`
+                `<button class="wk-btn wk-btn-primary wk-btn-sm assign w-full max-w-24" data-tool="${tool.id}">Выдать</button>
+                 <button class="wk-btn wk-btn-secondary wk-btn-sm edit w-full max-w-24" data-id="${tool.id}">Изменить</button>
+                 <button class="wk-btn wk-btn-danger wk-btn-sm delete w-full max-w-24" data-id="${tool.id}">Удалить</button>`
               }
             </div>
           </td>
