@@ -323,6 +323,59 @@ app.delete('/api/workers/:id', async (req: Request, res: Response) => {
   }
 });
 
+app.patch('/api/workers/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const { fullName, phone, position } = req.body
+
+  try {
+    const existing = await prisma.worker.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ error: 'worker not found' })
+
+    if (fullName && fullName.trim() !== existing.fullName) {
+      const dup = await prisma.worker.findFirst({
+        where: {
+          fullName: fullName.trim(),
+          deleted: false,
+          id: { not: id } as any
+        } as any
+      })
+      if (dup) return res.status(400).json({ error: 'Worker with this name already exists' })
+    }
+
+    let normalizedPhone: string | null = existing.phone ?? null
+    if (phone !== undefined) {
+      const phoneStr = String(phone || '').trim()
+      if (!phoneStr) {
+        normalizedPhone = null
+      } else {
+        const digits = phoneStr.replace(/\D/g, '')
+        if (digits.length === 11 && (digits.startsWith('7') || digits.startsWith('8'))) {
+          const raw = digits.slice(1)
+          normalizedPhone = `+7-${raw.slice(0,3)}-${raw.slice(3,6)}-${raw.slice(6,8)}-${raw.slice(8,10)}`
+        } else if (digits.length === 10) {
+          normalizedPhone = `+7-${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6,8)}-${digits.slice(8,10)}`
+        } else {
+          return res.status(400).json({ error: 'номер должен содержать 10 цифр или 11 цифр начиная с 7/8' })
+        }
+      }
+    }
+
+    const updated = await prisma.worker.update({
+      where: { id },
+      data: {
+        fullName: fullName !== undefined ? fullName.trim() : existing.fullName,
+        phone: normalizedPhone,
+        position: position !== undefined ? (position ? position.trim() : null) : existing.position
+      } as any
+    })
+
+    res.json(updated)
+  } catch (err) {
+    console.error('Error updating worker:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+});
+
 app.get('/api/suppliers', async (req: Request, res: Response) => {
   const showDeleted = req.query.showDeleted === 'true'
   const suppliers = await prisma.supplier.findMany({
@@ -392,6 +445,113 @@ app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
   }
 })
 
+
+app.patch('/api/products/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const { name, unit } = req.body
+
+  try {
+    const product = await prisma.product.findUnique({ where: { id } })
+    if (!product) {
+      return res.status(404).json({ error: 'product not found' })
+    }
+
+    const updateData: any = {}
+    
+    if (name !== undefined) {
+      const displayName = String(name).trim()
+      if (!displayName) {
+        return res.status(400).json({ error: 'name cannot be empty' })
+      }
+      
+      const nameNormalized = displayName.toLowerCase()
+      
+      if (nameNormalized !== product.nameNormalized) {
+        const existsRows = await prisma.$queryRaw<Array<{ id: number }>>`
+          SELECT id FROM product WHERE "nameNormalized" = ${nameNormalized} AND id != ${id} LIMIT 1
+        `
+        if (existsRows.length > 0) {
+          return res.status(400).json({ error: 'product with this name already exists' })
+        }
+        
+        updateData.name = displayName
+        updateData.nameNormalized = nameNormalized
+      }
+    }
+
+    if (unit !== undefined) {
+      updateData.unit = String(unit ?? '')
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.json(product)
+    }
+
+    const updatedProduct = await prisma.product.update({
+      where: { id },
+      data: updateData
+    })
+
+    res.json(updatedProduct)
+  } catch (err) {
+    console.error('Error updating product:', err)
+    res.status(500).json({ error: 'internal server error' })
+  }
+})
+
+app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const { name, phone, email } = req.body
+
+  try {
+    const existing = await prisma.supplier.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ error: 'supplier not found' })
+
+    if (name && name !== existing.name) {
+      const dup = await prisma.supplier.findFirst({ where: { name, id: { not: id } } as any })
+      if (dup) return res.status(400).json({ error: 'supplier with this name exists' })
+    }
+
+    let normalizedPhone: string | null = existing.phone ?? null
+    if (phone !== undefined) {
+      const phoneStr = String(phone || '').trim()
+      if (!phoneStr) {
+        normalizedPhone = null
+      } else {
+        const digits = phoneStr.replace(/\D/g, '')
+        if (digits.length === 11 && (digits.startsWith('7') || digits.startsWith('8'))) {
+          const raw = digits.slice(1)
+          normalizedPhone = `+7-${raw.slice(0,3)}-${raw.slice(3,6)}-${raw.slice(6,8)}-${raw.slice(8,10)}`
+        } else if (digits.length === 10) {
+          normalizedPhone = `+7-${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6,8)}-${digits.slice(8,10)}`
+        } else {
+          return res.status(400).json({ error: 'номер должен содержать 10 цифр или 11 цифр начиная с 7/8' })
+        }
+      }
+    }
+
+    const emailStr = email !== undefined ? (String(email).trim() || null) : existing.email
+
+    if (emailStr && !/^\S+@\S+\.\S+$/.test(emailStr)) {
+      return res.status(400).json({ error: 'invalid email' })
+    }
+
+    const updated = await prisma.supplier.update({
+      where: { id },
+      data: {
+        name: name !== undefined ? name : existing.name,
+        phone: normalizedPhone,
+        email: emailStr
+      } as any
+    })
+
+    res.json(updated)
+  } catch (err) {
+    console.error('Error updating supplier:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 app.get('/api/locations', async (req: Request, res: Response) => {
   const showDeleted = req.query.showDeleted === 'true'
   const l = await prisma.location.findMany({
@@ -419,6 +579,36 @@ app.delete('/api/locations/:id', async (req: Request, res: Response) => {
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ error: 'failed to delete location' })
+  }
+})
+
+app.patch('/api/locations/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const { name, city, district, address } = req.body
+
+  try {
+    const existing = await prisma.location.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ error: 'location not found' })
+
+    if (name && name !== existing.name) {
+      const dup = await prisma.location.findUnique({ where: { name } })
+      if (dup && dup.id !== id) return res.status(400).json({ error: 'location exists' })
+    }
+
+    const updated = await prisma.location.update({
+      where: { id },
+      data: {
+        name: name !== undefined ? name : existing.name,
+        city: city !== undefined ? (city || null) : existing.city,
+        district: district !== undefined ? (district || null) : existing.district,
+        address: address !== undefined ? (address || null) : existing.address
+      } as any
+    })
+
+    res.json(updated)
+  } catch (err) {
+    console.error('Error updating location:', err)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -1061,5 +1251,114 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
   const bold = fs.existsSync(path.join(repoFonts, 'NotoSans-Bold.ttf'))
   console.info(`Fonts: NotoSans-Regular=${normal}, NotoSans-Bold=${bold}`)
 }
+
+// bulk adjust route (keep creating individual transaction rows; no schema change)
+app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) => {
+  const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
+  if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+
+  // Normalize and validate items
+  const parsedItems = items.map((it: any) => ({
+    productId: Number(it.productId),
+    delta: Number(it.delta)
+  }));
+
+  for (const it of parsedItems) {
+    if (!Number.isInteger(it.productId) || it.productId <= 0) return res.status(400).json({ error: 'invalid productId in items' });
+    if (!Number.isInteger(it.delta) || it.delta <= 0) return res.status(400).json({ error: 'each delta must be positive integer' });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Load involved products
+      const productIds = Array.from(new Set(parsedItems.map(p => p.productId)));
+      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const prodMap: Record<number, any> = {};
+      products.forEach(p => prodMap[p.id] = p);
+
+      // Verify all products exist
+      for (const id of productIds) {
+        if (!prodMap[id]) throw new Error(`product not found: ${id}`);
+      }
+
+      // Optionally fetch supplier/destination/worker names (common for all items)
+      let supplierName: string | undefined = undefined;
+      let destinationName: string | undefined = undefined;
+      if (supplierId) {
+        const s = await tx.supplier.findUnique({ where: { id: Number(supplierId) } });
+        if (!s) throw new Error('supplier not found');
+        supplierName = s.name;
+      }
+      if (destinationId) {
+        const d = await tx.location.findUnique({ where: { id: Number(destinationId) } });
+        if (!d) throw new Error('destination not found');
+        destinationName = d.name;
+      }
+      if (workerId) {
+        const w = await tx.worker.findUnique({ where: { id: Number(workerId) } });
+        if (!w) throw new Error('worker not found');
+      }
+
+      // Compute and validate new quantities (support multiple adjustments that might target same product)
+      const deltasPerProduct: Record<number, number> = {};
+      parsedItems.forEach(it => {
+        const sign = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        deltasPerProduct[it.productId] = (deltasPerProduct[it.productId] || 0) + sign;
+      });
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const p = prodMap[pid];
+        const newQty = p.quantity + deltasPerProduct[pid];
+        if (newQty < 0) throw new Error(`not enough stock for product ${pid}`);
+        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${pid}`);
+      }
+
+      // Apply updates and create transactions
+      const createdTxs: any[] = [];
+      for (const it of parsedItems) {
+        const product = prodMap[it.productId];
+        const numericDelta = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        const tData: any = {
+          productId: product.id,
+          productName: product.name,
+          delta: numericDelta,
+          type,
+          date: date ? new Date(date) : undefined,
+          supplierName,
+          destinationName,
+          supplierId: supplierId ? Number(supplierId) : undefined,
+          destinationId: destinationId ? Number(destinationId) : undefined,
+          workerId: workerId ? Number(workerId) : undefined,
+          note: note ?? undefined
+        };
+        const t = await tx.transaction.create({ data: tData });
+        createdTxs.push(t);
+        // update product quantity incrementally
+        await tx.product.update({ where: { id: product.id }, data: { quantity: product.quantity + numericDelta } });
+        // reflect change to product.quantity for subsequent updates targeting same product
+        product.quantity = product.quantity + numericDelta;
+      }
+
+      return { transactions: createdTxs };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('bulk-adjust error', err);
+    if (err.message && err.message.startsWith('not enough')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('exceeds')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('product not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'failed to perform bulk adjust' });
+  }
+});
+
 const port = process.env.PORT ?? 3000
 app.listen(port, () => console.log(`server started on http://localhost:${port}`))

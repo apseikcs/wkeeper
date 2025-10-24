@@ -1,63 +1,83 @@
 const TOKEN_KEY = 'warehouse_token';
 
 function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
 }
-
 function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  try { localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+}
+function logout() {
+  try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  window.location.href = '/login.html';
 }
 
-function logout() {
-  localStorage.removeItem(TOKEN_KEY);
-  window.location.href = 'login.html';
+function resolveUrl(url) {
+  try {
+    if (!url && url !== '') return url;
+    if (typeof Request !== 'undefined' && url instanceof Request) return url.url;
+    const s = typeof url === 'string' ? url : String(url);
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    if (s.startsWith('/')) return window.location.origin + s;
+    return window.location.origin + '/' + s;
+  } catch (e) {
+    console.error('resolveUrl error', e, url);
+    return url;
+  }
 }
 
 async function login(username, password) {
-  const response = await fetch('/api/login', {
+  const resp = await fetch(resolveUrl('/api/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password })
   });
-
-  if (response.ok) {
-    const { token } = await response.json();
-    setToken(token);
-    return true;
+  if (resp.ok) {
+    const j = await resp.json().catch(() => ({}));
+    if (j.token) setToken(j.token);
+    return resp.ok;
   }
   return false;
 }
 
 async function authFetch(url, options = {}) {
-  const token = getToken();
-  if (!token) {
-    logout(); // No token, force logout
-    return Promise.reject(new Error('no token'));
-  }
-
-  const headers = {
-    ...options.headers,
-    'Authorization': `Bearer ${token}`,
-  };
-
-  const response = await fetch(url, { ...options, headers });
-
-  if (response.status === 401 || response.status === 403) {
-    logout(); // Token is invalid or expired, force logout
-    return Promise.reject(new Error('unauthorized'));
-  }
-
-  return response;
-}
-
-function checkAuth() {
-  if (!getToken()) {
-    // allow access to login page itself
-    if (!window.location.pathname.endsWith('login.html')) {
-      window.location.href = 'login.html';
+  try {
+    const token = getToken();
+    if (!token) {
+      return Promise.reject(new Error('no token'));
     }
+
+    const fullUrl = resolveUrl(url);
+
+    let headersObj = {};
+    try {
+      if (typeof Headers !== 'undefined' && options.headers instanceof Headers) {
+        options.headers.forEach((v, k) => headersObj[k] = v);
+      } else if (options.headers && typeof options.headers === 'object') {
+        headersObj = { ...options.headers };
+      }
+    } catch (hdrErr) {
+      headersObj = {};
+    }
+
+    headersObj['Authorization'] = `Bearer ${token}`;
+
+    const init = { ...options, headers: headersObj };
+    const response = await fetch(fullUrl, init);
+
+    if (response.status === 401 || response.status === 403) {
+      logout();
+      return Promise.reject(new Error('unauthorized'));
+    }
+
+    return response;
+  } catch (err) {
+    console.error('Network / authFetch error:', err);
+    return Promise.reject(err);
   }
 }
 
-// Check auth on script load for all pages that include this
-checkAuth();
+window.authFetch = authFetch;
+window.logout = logout;
+window.login = login;
+window.getToken = getToken;
+

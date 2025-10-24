@@ -147,13 +147,20 @@
             <div class="wk-font-semibold wk-text-lg">${escapeHtml(location.name)}</div>
             <div class="wk-flex wk-items-center wk-gap-2">
               <span class="wk-badge wk-badge-primary">#${location.id}</span>
-              <button class="wk-text-muted hover:wk-text-red-600" 
+              <button class="wk-text-muted hover:wk-text-blue-600 edit-location" 
                       data-id="${location.id}" 
-                      aria-label="Удалить объект">
+                      aria-label="Редактировать объект" title="Редактировать">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h6M4 7v10a2 2 0 002 2h10l4-4V7a2 2 0 00-2-2H6a2 2 0 00-2 2z"/>
                 </svg>
               </button>
+              <button class="wk-text-muted hover:wk-text-red-600 delete-location" 
+                      data-id="${location.id}" 
+                      aria-label="Удалить объект" title="Удалить">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                 </svg>
+               </button>
             </div>
           </div>
           
@@ -184,7 +191,10 @@
         `;
         
         const deleteBtn = div.querySelector('button');
-        deleteBtn.addEventListener('click', () => openDeleteModal(location));
+        const editBtn = div.querySelector('.edit-location');
+        const delBtn = div.querySelector('.delete-location');
+        if (editBtn) editBtn.addEventListener('click', () => openEditLocationModal(location));
+        if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(location));
         
         root.appendChild(div);
       });
@@ -286,6 +296,65 @@
           modalRoot.innerHTML = '';
         }
       });
+    }
+
+    function openEditLocationModal(location) {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Редактировать объект</h3>
+            <form id="editLocationForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название *</label>
+                <input class="wk-form-input" name="name" required value="${escapeHtml(location.name)}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Город</label>
+                <input class="wk-form-input" name="city" value="${location.city ? escapeHtml(location.city) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Район</label>
+                <input class="wk-form-input" name="district" value="${location.district ? escapeHtml(location.district) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Адрес</label>
+                <input class="wk-form-input" name="address" value="${location.address ? escapeHtml(location.address) : ''}">
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelEditLoc" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `
+      document.getElementById('cancelEditLoc').onclick = () => modalRoot.innerHTML = ''
+      document.getElementById('editLocationForm').onsubmit = async (e) => {
+        e.preventDefault()
+        const f = e.target
+        const payload = {
+          name: f.name.value.trim(),
+          city: f.city.value.trim() || null,
+          district: f.district.value.trim() || null,
+          address: f.address.value.trim() || null
+        }
+        try {
+          const resp = await authFetch(`/api/locations/${location.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+          if (!resp.ok) {
+            const j = await resp.json().catch(()=>({}))
+            throw new Error(j.error || 'Ошибка')
+          }
+          modalRoot.innerHTML = ''
+          await load()
+        } catch (err) {
+          showError('Ошибка при сохранении: ' + (err.message || err))
+        }
+      }
     }
 
     async function handleAddLocation(e) {

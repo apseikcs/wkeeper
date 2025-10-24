@@ -144,12 +144,18 @@
             <h3 class="worker-card__name">${escapeHtml(worker.fullName)}</h3>
             <div class="wk-flex wk-items-center gap-2 mt-2 mb-2">
               <span class="wk-badge wk-badge-primary">#${worker.id}</span>
-              <button class="text-gray-400 hover:text-red-500 transition-colors" 
-                      data-id="${worker.id}" aria-label="Удалить сотрудника">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+              <button class="text-gray-400 hover:text-blue-500 transition-colors edit-worker" 
+                      data-id="${worker.id}" aria-label="Редактировать сотрудника" title="Редактировать">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
               </button>
+              <button class="text-gray-400 hover:text-red-500 transition-colors delete-worker" 
+                      data-id="${worker.id}" aria-label="Удалить сотрудника" title="Удалить">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                 </svg>
+               </button>
             </div>
           </div>
           
@@ -181,7 +187,10 @@
         `;
         
         const deleteBtn = card.querySelector('button[data-id]');
-        deleteBtn.addEventListener('click', () => openDeleteModal(worker));
+        const editBtn = card.querySelector('.edit-worker');
+        const delBtn = card.querySelector('.delete-worker');
+        if (editBtn) editBtn.addEventListener('click', () => openEditWorkerModal(worker));
+        if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(worker));
         
         const assignBtn = card.querySelector('.assign-btn');
         if (assignBtn) {
@@ -409,6 +418,60 @@
           modalRoot.innerHTML = '';
         }
       })
+    }
+
+    function openEditWorkerModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Редактировать сотрудника</h3>
+            <form id="editWorkerForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">ФИО *</label>
+                <input class="wk-form-input" name="fullName" required value="${escapeHtml(worker.fullName)}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Телефон</label>
+                <input class="wk-form-input" name="phone" value="${worker.phone ? escapeHtml(worker.phone) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Должность</label>
+                <input class="wk-form-input" name="position" value="${worker.position ? escapeHtml(worker.position) : ''}">
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelEditWorker" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `
+      document.getElementById('cancelEditWorker').onclick = () => modalRoot.innerHTML = ''
+      document.getElementById('editWorkerForm').onsubmit = async (e) => {
+        e.preventDefault()
+        const f = e.target
+        const payload = {
+          fullName: f.fullName.value.trim(),
+          phone: f.phone.value.trim() || null,
+          position: f.position.value.trim() || null
+        }
+        try {
+          const resp = await authFetch(`/api/workers/${worker.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+          if (!resp.ok) {
+            const j = await resp.json().catch(()=>({}))
+            throw new Error(j.error || 'Ошибка')
+          }
+          modalRoot.innerHTML = ''
+          await load()
+        } catch (err) {
+          showError('Ошибка при сохранении: ' + (err.message || err))
+        }
+      }
     }
 
     async function handleAddWorker(e) {

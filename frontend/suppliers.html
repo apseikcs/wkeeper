@@ -199,12 +199,19 @@
             <div class="wk-font-semibold wk-text-lg wk-text-gray-900">${escapeHtml(supplier.name)}</div>
             <div class="wk-flex wk-items-center wk-gap-2">
               <span class="wk-badge wk-badge-primary">#${supplier.id}</span>
-              <button class="wk-text-gray-400 hover:wk-text-red-500 wk-transition-colors" 
-                      data-id="${supplier.id}" aria-label="Удалить поставщика">
+              <button class="wk-text-gray-400 hover:wk-text-blue-500 wk-transition-colors edit-supplier" 
+                      data-id="${supplier.id}" aria-label="Редактировать поставщика" title="Редактировать">
+                <!-- edit icon -->
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h6M4 7v10a2 2 0 002 2h10l4-4V7a2 2 0 00-2-2H6a2 2 0 00-2 2z"/>
                 </svg>
               </button>
+              <button class="wk-text-gray-400 hover:wk-text-red-500 wk-transition-colors delete-supplier" 
+                      data-id="${supplier.id}" aria-label="Удалить поставщика" title="Удалить">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                 </svg>
+               </button>
             </div>
           </div>
           
@@ -231,7 +238,10 @@
         `;
         
         const deleteBtn = div.querySelector('button');
-        deleteBtn.addEventListener('click', () => openDeleteModal(supplier));
+        const editBtn = div.querySelector('.edit-supplier');
+        const delBtn = div.querySelector('.delete-supplier');
+        if (editBtn) editBtn.addEventListener('click', () => openSupplierModal(supplier));
+        if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(supplier));
         
         root.appendChild(div);
       });
@@ -331,7 +341,7 @@
       
       try {
         const url = isEdit ? `/api/suppliers/${id}` : '/api/suppliers';
-        const method = isEdit ? 'PUT' : 'POST';
+        const method = isEdit ? 'PATCH' : 'POST';
         
         const response = await authFetch(url, {
           method: method,
