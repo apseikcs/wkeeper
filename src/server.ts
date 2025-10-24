@@ -13,8 +13,6 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-// ✅ Код-ревью: Хорошая структура импортов и инициализации
-
 app.post('/api/login', async (req: Request, res: Response) => {
   const { username, password } = req.body
   if (!username || !password) {
@@ -36,6 +34,15 @@ app.post('/api/login', async (req: Request, res: Response) => {
 })
 
 app.use(express.static(path.join(__dirname, '..', 'frontend')))
+
+app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
+  maxAge: '30d',
+  setHeaders: (res: any, filePath: string) => {
+    if (filePath.endsWith('.ttf')) res.setHeader('Content-Type', 'font/ttf')
+    if (filePath.endsWith('.otf')) res.setHeader('Content-Type', 'font/otf')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  }
+}))
 
 const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization']
@@ -89,7 +96,6 @@ app.get('/api/products', async (req: Request, res: Response) => {
 
   const q = `%${search.replace(/%/g, '\\%')}%`
 
-  // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
   const rows: Array<{ id: number }> = await prisma.$queryRaw`
     SELECT id FROM product
     WHERE lower(name) LIKE lower(${q})
@@ -116,7 +122,6 @@ app.post('/api/products', async (req: Request, res: Response) => {
   if (!Number.isInteger(qRaw) || qRaw < 0) return res.status(400).json({ error: 'quantity must be integer >= 0' })
   if (qRaw > 65535) return res.status(400).json({ error: 'quantity must be <= 65535' })
   
-  // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
   const existsRows = await prisma.$queryRaw<Array<{ id: number }>>`
     SELECT id FROM product WHERE "nameNormalized" = ${nameNormalized} LIMIT 1
   `
@@ -433,7 +438,6 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     where.productId = productId
   } else if (searchProduct) {
     const q = `%${String(searchProduct).replace(/%/g, '\\%')}%`
-    // ✅ ФИКС: Исправлено имя колонки для PostgreSQL
     const rows: Array<{ id: number }> = await prisma.$queryRaw`
       SELECT id FROM product
       WHERE lower(name) LIKE lower(${q})
@@ -453,7 +457,6 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     if (entityType === 'worker') where.workerId = entityId
   } else if (search) {
     const like = `%${search.replace(/%/g, '\\%')}%`
-    // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
     const [prodIds, supIds, locIds, workerIds] = await Promise.all([
       prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM product WHERE lower(name) LIKE lower(${like})`,
       prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM supplier WHERE lower(name) LIKE lower(${like})`,
@@ -514,7 +517,6 @@ app.get('/api/search', async (req: Request, res: Response) => {
   if (!q) return res.json({ items: [] })
   const like = `%${q.replace(/%/g, '\\%')}%`
   
-  // ✅ ФИКС: Исправлены имена колонок для PostgreSQL
   const [products, suppliers, locations, workers] = await Promise.all([
     prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, name FROM product WHERE lower(name) LIKE lower(${like}) LIMIT 20`,
     prisma.$queryRaw<Array<{id:number,name:string}>>`SELECT id, name FROM supplier WHERE lower(name) LIKE lower(${like}) LIMIT 20`,
@@ -630,7 +632,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     const type = String(req.query.type)
     const from = req.query.from ? new Date(String(req.query.from)) : undefined
     const to = req.query.to ? new Date(String(req.query.to)) : undefined
-    // default export format is Excel (XLSX) — frontend now treats XLS as primary
     const format = String(req.query.format ?? 'excel').toLowerCase()
     const extra = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -639,10 +640,7 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     }
     const ts = new Date().toISOString().slice(0,10)
 
-    // helper: build Content-Disposition supporting UTF-8 names (RFC5987)
-    // produce a readable ASCII fallback by transliterating common Cyrillic letters
     function contentDispositionHeader(filename: string) {
-      // simple Cyrillic -> Latin map (extend if needed)
       const map: Record<string,string> = {
         'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'y',
         'к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f',
@@ -651,37 +649,32 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
 
       function translit(s: string) {
         return s.split('').map(ch => {
-          if (ch.charCodeAt(0) < 128) return ch; // ASCII unchanged
+          if (ch.charCodeAt(0) < 128) return ch; 
           const lower = ch.toLowerCase();
           if (map[lower] !== undefined) {
-            // preserve capitalization roughly
             const out = map[lower];
             return ch === lower ? out : (out.charAt(0).toUpperCase() + out.slice(1));
           }
-          // unknown non-ASCII -> replace with underscore
           return '_';
         }).join('')
-         .replace(/[^\w\-.() ]+/g, '_') // keep safe filename chars, replace others
-         .replace(/\s+/g, '_')          // spaces -> underscores
-         .replace(/_+/g, '_')           // collapse multiple underscores
-         .replace(/^_+|_+$/g, '')       // trim leading/trailing underscores
+         .replace(/[^\w\-.() ]+/g, '_') 
+         .replace(/\s+/g, '_')          
+         .replace(/_+/g, '_')           
+         .replace(/^_+|_+$/g, '')       
       }
 
       const fallback = translit(filename) || 'report'
-      // filename* uses percent-encoding of UTF-8 per RFC5987
       return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`
     }
 
     if (format === 'csv') {
       const { csv, filename } = await exportToCsv(type, from, to, extra)
       res.setHeader('Content-Type', 'text/csv; charset=utf-8')
-      // allow frontend JS to read Content-Disposition (filename*)
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
       res.setHeader('Content-Disposition', contentDispositionHeader(filename))
       return res.send(csv)
     }
 
-    // get CSV content and the localized filename (may contain Cyrillic)
     const { csv, filename: csvFilename } = await exportToCsv(type, from, to, extra)
     const lines = String(csv || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean)
 
@@ -702,7 +695,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     const rows = lines.map(l => parseCsvLine(l))
 
     if (format === 'excel' || format === 'xls' || format === 'xlsx') {
-      // Build Excel workbook from parsed CSV rows and stream as .xlsx
       const ExcelJS = require('exceljs')
       const wb = new ExcelJS.Workbook()
       wb.creator = 'warehouse-keeper'
@@ -717,7 +709,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
           ws.addRow(rows[i].map(c => (c || '').toString().trim()))
         }
 
-        // style header
         const headerRow = ws.getRow(1)
         headerRow.eachCell((cell: any) => {
           cell.font = { bold: true }
@@ -734,7 +725,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
 
         ws.views = [{ state: 'frozen', ySplit: 1 }]
 
-        // auto-width-ish: compute column widths based on content (capped)
         ws.columns.forEach((col: any) => {
           let max = 10
           col.eachCell({ includeEmpty: true }, (cell: any) => {
@@ -747,46 +737,43 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
 
       const outBuf = Buffer.from(await wb.xlsx.writeBuffer())
 
-      // prefer localized CSV filename, replace .csv with .xlsx; fallback to type-based name
       const filenameBase = csvFilename && typeof csvFilename === 'string' ? csvFilename.replace(/\.csv$/i, '') : (type || 'report')
       const filename = `${filenameBase}-${ts}.xlsx`
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      // expose header so frontend can read the UTF-8 filename
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
       res.setHeader('Content-Disposition', contentDispositionHeader(filename))
       res.setHeader('Content-Length', String(outBuf.length))
       return res.end(outBuf)
     }
 
-    // --- REPLACE: PDF generation using pdfmake (lighter than puppeteer) ---
     if (format === 'pdf') {
-      // helper: ensure fonts available (only local ./fonts, no network)
       const fs = require('fs')
-      // Only use local fonts folder. No network fetches.
       async function ensureFonts(): Promise<{ normal: string, bold: string } | null> {
         try {
-          const repoFonts = path.join(__dirname, '..', 'fonts')
-          const localNormal = path.join(repoFonts, 'NotoSans-Regular.ttf')
-          const localBold = path.join(repoFonts, 'NotoSans-Bold.ttf')
-
-          // If both present -> done
-          if (fs.existsSync(localNormal) && fs.existsSync(localBold)) {
-            return { normal: localNormal, bold: localBold }
-          }
-
-          // If only regular present, create a bold fallback by copying regular (acceptable for tabular PDF)
-          if (fs.existsSync(localNormal) && !fs.existsSync(localBold)) {
-            try {
-              fs.copyFileSync(localNormal, localBold)
-              console.warn('NotoSans-Bold not found; using Regular as Bold fallback.')
-              return { normal: localNormal, bold: localBold }
-            } catch (copyErr) {
-              console.error('failed to create bold fallback from regular font', copyErr)
-              return null
+          const candidates = [
+            path.join(__dirname, '..', 'fonts'),
+            path.join(process.cwd(), 'fonts'),
+            path.join(__dirname, 'fonts'),
+            path.join(__dirname, '..', 'frontend', 'fonts')
+          ]
+          for (const dir of candidates) {
+            const normal = path.join(dir, 'NotoSans-Regular.ttf')
+            const bold = path.join(dir, 'NotoSans-Bold.ttf')
+            if (fs.existsSync(normal) && fs.existsSync(bold)) {
+              console.info('Fonts found in:', dir)
+              return { normal, bold }
+            }
+            if (fs.existsSync(normal) && !fs.existsSync(bold)) {
+              try {
+                fs.copyFileSync(normal, bold)
+                console.warn('NotoSans-Bold not found; created Bold fallback from Regular in:', dir)
+                return { normal, bold }
+              } catch (copyErr) {
+                console.error('failed to create bold fallback from regular font in', dir, copyErr)
+              }
             }
           }
-
-          // Fonts are missing
+          console.warn('No fonts found in candidate locations:', candidates.join(', '))
           return null
         } catch (err) {
           console.error('fonts ensure error', err)
@@ -801,14 +788,12 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
       }
  
       try {
-        // Use pdfmake's server-side PdfPrinter (try a couple of common require paths)
         let PdfPrinter: any = null
         try {
           PdfPrinter = require('pdfmake/src/printer')
         } catch (e1) {
           try {
             const pm = require('pdfmake')
-            // some package layouts export a factory/object; try common exports
             PdfPrinter = pm && (pm.Printer || pm.PdfPrinter || pm.default || pm)
           } catch (e2) {
             console.error('pdfmake require error', e1, e2)
@@ -823,8 +808,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
          }
          const printer = new PdfPrinter(fontsObj)
 
-        // build doc table body: first row header
-        // explicit types avoid TS inferring never[] and causing push() type errors
         const header: string[] = rows.length ? rows[0].map(h => (h || '').toString()) : []
         const body: Array<Array<any>> = []
         if (header.length) {
@@ -836,11 +819,9 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
           body.push([{ text: 'empty', colSpan: 1 } as any])
         }
 
-        // adapt orientation/size/widths for wide tables so they fit the page
         const colCount = header.length || 0
         const pageOrientation = colCount > 6 ? 'landscape' : 'portrait'
         const computedFontSize = colCount > 10 ? 8 : (colCount > 6 ? 9 : 10)
-        // use '*' for normal cases (equal distribution), but for very many columns allow 'auto'
         const widths = header.length ? header.map(() => (colCount > 12 ? 'auto' : '*')) : ['*']
 
         const compactTableLayout: any = {
@@ -879,11 +860,9 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
         pdfDoc.on('data', (chunk: any) => chunks.push(chunk))
         pdfDoc.on('end', () => {
           const result = Buffer.concat(chunks)
-          // prefer localized CSV filename; replace .csv with .pdf
           const filenameBasePdf = csvFilename && typeof csvFilename === 'string' ? csvFilename.replace(/\.csv$/i, '') : (type || 'report')
           const filename = `${filenameBasePdf}-${ts}.pdf`
           res.setHeader('Content-Type', 'application/pdf')
-          // expose header so frontend can read the UTF-8 filename
           res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition')
           res.setHeader('Content-Disposition', contentDispositionHeader(filename))
           res.setHeader('Content-Length', String(result.length))
@@ -896,7 +875,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'failed to generate PDF (see server logs for details)' })
       }
     }
-    // --- end PDF branch ---
 
     return res.status(400).json({ error: 'unknown format' })
   } catch (e) {
@@ -1076,7 +1054,6 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
   }
 });
 
-// report fonts availability on startup (helpful debug)
 {
   const fs = require('fs')
   const repoFonts = path.join(__dirname, '..', 'fonts')
