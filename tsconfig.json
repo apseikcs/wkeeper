@@ -9,7 +9,7 @@
     "resolveJsonModule": true,
     "sourceMap": true,
     "noImplicitAny": false,
-    "noEmitOnError": false,
+    "noEmitOnError": false
   },
   "include": ["src", "prisma"]
 }

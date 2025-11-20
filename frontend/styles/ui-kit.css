@@ -258,7 +258,6 @@
   color: white;
 }
 
-/* Компоненты обратной связи */
 .wk-alert {
   padding: var(--space-4);
   border-radius: var(--radius);
@@ -267,19 +266,19 @@
 }
 
 .wk-alert-success {
-  background-color: rgb(var(--color-success) / 0.1);
+  background-color: #fff;
   border-color: rgb(var(--color-success));
   color: rgb(21 128 61);
 }
 
 .wk-alert-error {
-  background-color: rgb(var(--color-danger) / 0.1);
+  background-color: #fff;
   border-color: rgb(var(--color-danger));
   color: rgb(185 28 28);
 }
 
 .wk-alert-warning {
-  background-color: rgb(var(--color-warning) / 0.1);
+  background-color: #fff;
   border-color: rgb(var(--color-warning));
   color: rgb(180 83 9);
 }

@@ -3,11 +3,13 @@ dotenv.config()
 
 import { prisma } from './prisma'
 import type { Request, Response, NextFunction } from 'express'
-const express = require('express')
-const path = require('path')
-const cors = require('cors')
+import express from 'express'
+import path from 'path'
+import cors from 'cors'
 import { startOfDay } from './dateUtils'
 import { comparePassword, generateToken, verifyToken } from './auth'
+import * as ExcelJS from 'exceljs'
+import * as fs from 'fs'
 
 const app = express()
 app.use(cors())
@@ -76,11 +78,40 @@ app.get('/api/stats', async (req: Request, res: Response) => {
 })
 
 app.get('/api/transactions/recent', async (req: Request, res: Response) => {
-  const items = await prisma.transaction.findMany({
+  const transactions = await prisma.transaction.findMany({
     take: 5,
     orderBy: { date: 'desc' },
-    include: { product: true, worker: true, supplier: true, destination: true }
+    include: {
+      items: {
+        include: { product: { select: { id: true, name: true } } }
+      },
+      worker: { select: { id: true, fullName: true } },
+      supplier: { select: { id: true, name: true } },
+      destination: { select: { id: true, name: true } }
+    }
   })
+  
+  const items = transactions.flatMap(t => 
+    t.items.map(item => ({
+      id: t.id,
+      date: t.date,
+      type: t.type,
+      productId: item.productId,
+      productName: item.productName,
+      delta: item.delta,
+      supplierId: t.supplierId,
+      supplierName: t.supplierName || t.supplier?.name,
+      destinationId: t.destinationId,
+      destinationName: t.destinationName || t.destination?.name,
+      workerId: t.workerId,
+      note: t.note,
+      product: item.product,
+      worker: t.worker,
+      supplier: t.supplier,
+      destination: t.destination
+    }))
+  )
+  
   res.json(items)
 })
 
@@ -89,9 +120,45 @@ app.get('/api/products', async (req: Request, res: Response) => {
 
   if (!search) {
     const products = await prisma.product.findMany({
-      include: { transactions: { orderBy: { date: 'desc' } } }
+      include: {
+        transactionItem: {
+          include: {
+            transaction: {
+              select: {
+                id: true,
+                type: true,
+                date: true,
+                supplierName: true,
+                destinationName: true,
+                supplierId: true,
+                destinationId: true,
+                workerId: true,
+                note: true
+              }
+            }
+          },
+          orderBy: { transaction: { date: 'desc' } }
+        }
+      }
     })
-    return res.json(products)
+    const transformed = products.map(p => ({
+      ...p,
+      transactions: p.transactionItem.map(item => ({
+        id: item.transaction.id,
+        productId: item.productId,
+        productName: item.productName,
+        delta: item.delta,
+        type: item.transaction.type,
+        date: item.transaction.date,
+        supplierName: item.transaction.supplierName,
+        destinationName: item.transaction.destinationName,
+        supplierId: item.transaction.supplierId,
+        destinationId: item.transaction.destinationId,
+        workerId: item.transaction.workerId,
+        note: item.transaction.note
+      }))
+    }))
+    return res.json(transformed)
   }
 
   const q = `%${search.replace(/%/g, '\\%')}%`
@@ -107,10 +174,47 @@ app.get('/api/products', async (req: Request, res: Response) => {
 
   const products = await prisma.product.findMany({
     where: { id: { in: ids } },
-    include: { transactions: { orderBy: { date: 'desc' } } }
+    include: {
+      transactionItem: {
+        include: {
+          transaction: {
+            select: {
+              id: true,
+              type: true,
+              date: true,
+              supplierName: true,
+              destinationName: true,
+              supplierId: true,
+              destinationId: true,
+              workerId: true,
+              note: true
+            }
+          }
+        },
+        orderBy: { transaction: { date: 'desc' } }
+      }
+    }
   })
 
-  res.json(products)
+  const transformed = products.map(p => ({
+    ...p,
+    transactions: p.transactionItem.map(item => ({
+      id: item.transaction.id,
+      productId: item.productId,
+      productName: item.productName,
+      delta: item.delta,
+      type: item.transaction.type,
+      date: item.transaction.date,
+      supplierName: item.transaction.supplierName,
+      destinationName: item.transaction.destinationName,
+      supplierId: item.transaction.supplierId,
+      destinationId: item.transaction.destinationId,
+      workerId: item.transaction.workerId,
+      note: item.transaction.note
+    }))
+  }))
+
+  res.json(transformed)
 })
 
 app.post('/api/products', async (req: Request, res: Response) => {
@@ -136,15 +240,23 @@ app.post('/api/products', async (req: Request, res: Response) => {
       const supplier = await prisma.supplier.findUnique({ where: { id: Number(supplierId) } })
       if (!supplier) throw new Error('supplier not found')
       
-      const tData: any = {
-        productId: p.id,
-        productName: p.name,
-        delta: qRaw,
-        type: 'in',
-        supplierName: supplier.name,
-        supplierId: supplier.id
-      }
-      await prisma.transaction.create({ data: tData })
+      const t = await prisma.transaction.create({
+        data: {
+          type: 'in',
+          supplierName: supplier.name,
+          supplierId: supplier.id
+        }
+      })
+      
+      await prisma.transactionItem.create({
+        data: {
+          transactionId: t.id,
+          productId: p.id,
+          productName: p.name,
+          productSku: p.sku,
+          delta: qRaw
+        }
+      })
     } catch (e) {
       console.error('failed to create initial transaction', e)
     }
@@ -190,9 +302,6 @@ app.post('/api/products/:id/adjust', async (req: Request, res: Response) => {
       }
 
       const tData: any = {
-        productId: id,
-        productName: product.name,
-        delta: numericDelta,
         type,
         date: date ? new Date(date) : undefined,
         supplierName,
@@ -203,6 +312,17 @@ app.post('/api/products/:id/adjust', async (req: Request, res: Response) => {
         note
       }
       const t = await tx.transaction.create({ data: tData })
+      
+      await tx.transactionItem.create({
+        data: {
+          transactionId: t.id,
+          productId: id,
+          productName: product.name,
+          productSku: product.sku,
+          delta: numericDelta
+        }
+      })
+
       const newQty = product.quantity + numericDelta
       await tx.product.update({ where: { id }, data: { quantity: newQty } })
       return { transaction: t, newQty }
@@ -223,10 +343,25 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
 
   try {
     if (purge) {
-      await prisma.$transaction([
-        prisma.transaction.deleteMany({ where: { productId: id } }),
-        prisma.product.delete({ where: { id } })
-      ])
+      await prisma.$transaction(async (tx) => {
+        const transactionIds = await tx.transactionItem.findMany({
+          where: { productId: id },
+          select: { transactionId: true },
+          distinct: ['transactionId']
+        })
+        const ids = transactionIds.map(t => t.transactionId)
+        
+        await tx.transactionItem.deleteMany({ where: { productId: id } })
+        
+        for (const tid of ids) {
+          const remainingItems = await tx.transactionItem.count({ where: { transactionId: tid } })
+          if (remainingItems === 0) {
+            await tx.transaction.delete({ where: { id: tid } })
+          }
+        }
+        
+        await tx.product.delete({ where: { id } })
+      })
       return res.json({ ok: true, purged: true })
     } else {
       await prisma.product.delete({ where: { id } })
@@ -382,23 +517,37 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
     where: showDeleted ? undefined : { deleted: false }
   })
   
-  const rows = await prisma.$queryRaw<Array<{ supplierId: number, productId: number, name: string, total: number }>>`
-    SELECT 
-      t."supplierId" as "supplierId",
-      t."productId" as "productId",
-      p.name as name,
-      CAST(CAST(sum(t.delta) AS INTEGER) AS REAL) as total
-    FROM "transaction" t
-    JOIN product p ON p.id = t."productId"
-    WHERE t."supplierId" IS NOT NULL AND t.type = 'in'
-    GROUP BY t."supplierId", t."productId", p.name
-  `
+  const items = await prisma.transactionItem.findMany({
+    where: {
+      transaction: {
+        supplierId: { not: null },
+        type: 'in'
+      }
+    },
+    include: {
+      transaction: { select: { supplierId: true } },
+      product: { select: { id: true, name: true } }
+    }
+  })
   
   const map: Record<number, Array<{ productId: number, name: string, total: number }>> = {}
-  rows.forEach(r=>{
-    if (!map[r.supplierId]) map[r.supplierId] = []
-    map[r.supplierId].push({ productId: r.productId, name: r.name, total: r.total })
+  items.forEach(item => {
+    const supplierId = item.transaction.supplierId
+    if (supplierId && item.productId && item.product) {
+      if (!map[supplierId]) map[supplierId] = []
+      const existing = map[supplierId].find(e => e.productId === item.productId)
+      if (existing) {
+        existing.total += Math.abs(item.delta)
+      } else {
+        map[supplierId].push({ 
+          productId: item.productId, 
+          name: item.product.name, 
+          total: Math.abs(item.delta) 
+        })
+      }
+    }
   })
+  
   const result = suppliers.map(s=>({ ...s, supplied: map[s.id] || [] }))
   res.json(result)
 })
@@ -623,25 +772,24 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
   const limit = req.query.limit ? Math.max(1, Number(req.query.limit)) : 200
 
   const where: any = {}
+  let productFilter: number[] | undefined = undefined
 
   if (productId) {
-    where.productId = productId
+    productFilter = [productId]
   } else if (searchProduct) {
     const q = `%${String(searchProduct).replace(/%/g, '\\%')}%`
     const rows: Array<{ id: number }> = await prisma.$queryRaw`
       SELECT id FROM product
       WHERE lower(name) LIKE lower(${q})
     `
-    const ids = rows.map(r => r.id)
-    if (ids.length === 0) {
-      where.productId = { in: [] }
-    } else {
-      where.productId = { in: ids }
+    productFilter = rows.map(r => r.id)
+    if (productFilter.length === 0) {
+      return res.json({ page, limit, items: [] })
     }
   }
 
   if (entityType && entityId) {
-    if (entityType === 'product') where.productId = entityId
+    if (entityType === 'product') productFilter = [entityId]
     if (entityType === 'supplier') where.supplierId = entityId
     if (entityType === 'destination') where.destinationId = entityId
     if (entityType === 'worker') where.workerId = entityId
@@ -654,41 +802,88 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
       prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM worker WHERE lower("fullName") LIKE lower(${like})`
     ])
     const anyFilter: any[] = []
-    if (prodIds.length) anyFilter.push({ productId: { in: prodIds.map(r=>r.id) } })
+    if (prodIds.length) productFilter = prodIds.map(r => r.id)
     if (supIds.length) anyFilter.push({ supplierId: { in: supIds.map(r=>r.id) } })
     if (locIds.length) anyFilter.push({ destinationId: { in: locIds.map(r=>r.id) } })
     if (workerIds.length) anyFilter.push({ workerId: { in: workerIds.map(r=>r.id) } })
     if (anyFilter.length) {
       where.OR = anyFilter
-    } else {
-      where.id = { in: [] }
+    } else if (!productFilter || productFilter.length === 0) {
+      return res.json({ page, limit, items: [] })
     }
+  }
+
+  let transactionIds: number[] | undefined = undefined
+  if (productFilter && productFilter.length > 0) {
+    const items = await prisma.transactionItem.findMany({
+      where: { productId: { in: productFilter } },
+      select: { transactionId: true },
+      distinct: ['transactionId']
+    })
+    transactionIds = items.map(i => i.transactionId)
+    if (transactionIds.length === 0) {
+      return res.json({ page, limit, items: [] })
+    }
+    where.id = { in: transactionIds }
   }
 
   let orderBy: any = {}
   switch (sort) {
     case 'date_asc': orderBy = { date: 'asc' }; break
     case 'date_desc': orderBy = { date: 'desc' }; break
-    case 'product_asc': orderBy = { productName: 'asc' }; break
-    case 'product_desc': orderBy = { productName: 'desc' }; break
     case 'worker_asc': orderBy = { worker: { fullName: 'asc' } }; break
     case 'worker_desc': orderBy = { worker: { fullName: 'desc' } }; break
     case 'type_asc': orderBy = { type: 'asc' }; break
     case 'type_desc': orderBy = { type: 'desc' }; break
-    case 'quantity_asc': orderBy = { delta: 'asc' }; break
-    case 'quantity_desc': orderBy = { delta: 'desc' }; break
     default: orderBy = { date: 'desc' }
   }
 
   const transactions = await prisma.transaction.findMany({
     where,
-    include: { product: true, worker: true },
+    include: {
+      items: {
+        include: { product: { select: { id: true, name: true } } }
+      },
+      worker: { select: { id: true, fullName: true } },
+      supplier: { select: { id: true, name: true } },
+      destination: { select: { id: true, name: true } }
+    },
     orderBy,
     skip: (page - 1) * limit,
     take: limit
   })
 
-  res.json({ page, limit, items: transactions })
+  const flattenedItems = transactions.flatMap(t => 
+    t.items.map(item => ({
+      id: t.id,
+      date: t.date,
+      type: t.type,
+      productId: item.productId,
+      productName: item.productName,
+      delta: item.delta,
+      supplierId: t.supplierId,
+      supplierName: t.supplierName || t.supplier?.name,
+      destinationId: t.destinationId,
+      destinationName: t.destinationName || t.destination?.name,
+      workerId: t.workerId,
+      note: t.note,
+      product: item.product,
+      worker: t.worker
+    }))
+  )
+
+  let sortedItems = flattenedItems
+  if (sort === 'product_asc') {
+    sortedItems = flattenedItems.sort((a, b) => (a.productName || '').localeCompare(b.productName || ''))
+  } else if (sort === 'product_desc') {
+    sortedItems = flattenedItems.sort((a, b) => (b.productName || '').localeCompare(a.productName || ''))
+  } else if (sort === 'quantity_asc') {
+    sortedItems = flattenedItems.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta))
+  } else if (sort === 'quantity_desc') {
+    sortedItems = flattenedItems.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  }
+
+  res.json({ page, limit, items: sortedItems })
 })
 
 app.patch('/api/transactions/:id', async (req: Request, res: Response) => {
@@ -885,7 +1080,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     const rows = lines.map(l => parseCsvLine(l))
 
     if (format === 'excel' || format === 'xls' || format === 'xlsx') {
-      const ExcelJS = require('exceljs')
       const wb = new ExcelJS.Workbook()
       wb.creator = 'warehouse-keeper'
       const ws = wb.addWorksheet(type || 'report')
@@ -937,7 +1131,6 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
     }
 
     if (format === 'pdf') {
-      const fs = require('fs')
       async function ensureFonts(): Promise<{ normal: string, bold: string } | null> {
         try {
           const candidates = [
@@ -980,13 +1173,14 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
       try {
         let PdfPrinter: any = null
         try {
-          PdfPrinter = require('pdfmake/src/printer')
+          const pdfmakePrinter = await import('pdfmake/src/printer')
+          PdfPrinter = pdfmakePrinter.default || pdfmakePrinter
         } catch (e1) {
           try {
-            const pm = require('pdfmake')
+            const pm = await import('pdfmake')
             PdfPrinter = pm && (pm.Printer || pm.PdfPrinter || pm.default || pm)
           } catch (e2) {
-            console.error('pdfmake require error', e1, e2)
+            console.error('pdfmake import error', e1, e2)
             return res.status(500).json({ error: 'pdfmake module not found. Run: npm install pdfmake' })
           }
         }
@@ -1245,20 +1439,17 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
 });
 
 {
-  const fs = require('fs')
   const repoFonts = path.join(__dirname, '..', 'fonts')
   const normal = fs.existsSync(path.join(repoFonts, 'NotoSans-Regular.ttf'))
   const bold = fs.existsSync(path.join(repoFonts, 'NotoSans-Bold.ttf'))
   console.info(`Fonts: NotoSans-Regular=${normal}, NotoSans-Bold=${bold}`)
 }
 
-// bulk adjust route (keep creating individual transaction rows; no schema change)
 app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) => {
   const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
   if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
 
-  // Normalize and validate items
   const parsedItems = items.map((it: any) => ({
     productId: Number(it.productId),
     delta: Number(it.delta)
@@ -1271,18 +1462,15 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Load involved products
       const productIds = Array.from(new Set(parsedItems.map(p => p.productId)));
       const products = await tx.product.findMany({ where: { id: { in: productIds } } });
       const prodMap: Record<number, any> = {};
       products.forEach(p => prodMap[p.id] = p);
 
-      // Verify all products exist
       for (const id of productIds) {
         if (!prodMap[id]) throw new Error(`product not found: ${id}`);
       }
 
-      // Optionally fetch supplier/destination/worker names (common for all items)
       let supplierName: string | undefined = undefined;
       let destinationName: string | undefined = undefined;
       if (supplierId) {
@@ -1300,7 +1488,6 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
         if (!w) throw new Error('worker not found');
       }
 
-      // Compute and validate new quantities (support multiple adjustments that might target same product)
       const deltasPerProduct: Record<number, number> = {};
       parsedItems.forEach(it => {
         const sign = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
@@ -1311,37 +1498,50 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
         const pid = Number(pidStr);
         const p = prodMap[pid];
         const newQty = p.quantity + deltasPerProduct[pid];
-        if (newQty < 0) throw new Error(`not enough stock for product ${pid}`);
-        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${pid}`);
+        if (newQty < 0) throw new Error(`not enough stock for product ${p.name} (ID: ${pid})`);
+        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${p.name} (ID: ${pid})`);
       }
 
-      // Apply updates and create transactions
-      const createdTxs: any[] = [];
+      const tData: any = {
+        type,
+        date: date ? new Date(date) : undefined,
+        supplierName,
+        destinationName,
+        supplierId: supplierId ? Number(supplierId) : undefined,
+        destinationId: destinationId ? Number(destinationId) : undefined,
+        workerId: workerId ? Number(workerId) : undefined,
+        note: note ? String(note).trim() : undefined
+      };
+      const t = await tx.transaction.create({ data: tData });
+
+      const createdItems: any[] = [];
       for (const it of parsedItems) {
         const product = prodMap[it.productId];
         const numericDelta = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
-        const tData: any = {
-          productId: product.id,
-          productName: product.name,
-          delta: numericDelta,
-          type,
-          date: date ? new Date(date) : undefined,
-          supplierName,
-          destinationName,
-          supplierId: supplierId ? Number(supplierId) : undefined,
-          destinationId: destinationId ? Number(destinationId) : undefined,
-          workerId: workerId ? Number(workerId) : undefined,
-          note: note ?? undefined
-        };
-        const t = await tx.transaction.create({ data: tData });
-        createdTxs.push(t);
-        // update product quantity incrementally
-        await tx.product.update({ where: { id: product.id }, data: { quantity: product.quantity + numericDelta } });
-        // reflect change to product.quantity for subsequent updates targeting same product
-        product.quantity = product.quantity + numericDelta;
+        
+        const item = await tx.transactionItem.create({
+          data: {
+            transactionId: t.id,
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            delta: numericDelta
+          }
+        });
+        createdItems.push(item);
       }
 
-      return { transactions: createdTxs };
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const p = prodMap[pid];
+        const totalDelta = deltasPerProduct[pid];
+        await tx.product.update({ 
+          where: { id: pid }, 
+          data: { quantity: p.quantity + totalDelta } 
+        });
+      }
+
+      return { transaction: t, items: createdItems };
     });
 
     res.json(result);
@@ -1356,7 +1556,270 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
     if (err.message && err.message.startsWith('product not found')) {
       return res.status(404).json({ error: err.message });
     }
+    if (err.message && (err.message.includes('supplier not found') || err.message.includes('destination not found') || err.message.includes('worker not found'))) {
+      return res.status(404).json({ error: err.message });
+    }
     res.status(500).json({ error: 'failed to perform bulk adjust' });
+  }
+});
+
+app.post('/api/transactions', async (req: Request, res: Response) => {
+  const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
+  if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+
+  const parsedItems = items.map((it: any) => ({
+    productId: Number(it.productId),
+    delta: Number(it.delta)
+  }));
+
+  for (const it of parsedItems) {
+    if (!Number.isInteger(it.productId) || it.productId <= 0) return res.status(400).json({ error: 'invalid productId in items' });
+    if (!Number.isInteger(it.delta) || it.delta <= 0) return res.status(400).json({ error: 'each delta must be positive integer' });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const productIds = Array.from(new Set(parsedItems.map(p => p.productId)));
+      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const prodMap: Record<number, any> = {};
+      products.forEach(p => prodMap[p.id] = p);
+
+      for (const id of productIds) {
+        if (!prodMap[id]) throw new Error(`product not found: ${id}`);
+      }
+
+      let supplierName: string | undefined = undefined;
+      let destinationName: string | undefined = undefined;
+      if (supplierId) {
+        const s = await tx.supplier.findUnique({ where: { id: Number(supplierId) } });
+        if (!s) throw new Error('supplier not found');
+        supplierName = s.name;
+      }
+      if (destinationId) {
+        const d = await tx.location.findUnique({ where: { id: Number(destinationId) } });
+        if (!d) throw new Error('destination not found');
+        destinationName = d.name;
+      }
+      if (workerId) {
+        const w = await tx.worker.findUnique({ where: { id: Number(workerId) } });
+        if (!w) throw new Error('worker not found');
+      }
+
+      const deltasPerProduct: Record<number, number> = {};
+      parsedItems.forEach(it => {
+        const sign = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        deltasPerProduct[it.productId] = (deltasPerProduct[it.productId] || 0) + sign;
+      });
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const p = prodMap[pid];
+        const newQty = p.quantity + deltasPerProduct[pid];
+        if (newQty < 0) throw new Error(`not enough stock for product ${p.name} (ID: ${pid})`);
+        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${p.name} (ID: ${pid})`);
+      }
+
+      const tData: any = {
+        type,
+        date: date ? new Date(date) : undefined,
+        supplierName,
+        destinationName,
+        supplierId: supplierId ? Number(supplierId) : undefined,
+        destinationId: destinationId ? Number(destinationId) : undefined,
+        workerId: workerId ? Number(workerId) : undefined,
+        note: note ? String(note).trim() : undefined
+      };
+      const t = await tx.transaction.create({ data: tData });
+
+      const createdItems: any[] = [];
+      for (const it of parsedItems) {
+        const product = prodMap[it.productId];
+        const numericDelta = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        
+        const item = await tx.transactionItem.create({
+          data: {
+            transactionId: t.id,
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            delta: numericDelta
+          }
+        });
+        createdItems.push(item);
+      }
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const p = prodMap[pid];
+        const totalDelta = deltasPerProduct[pid];
+        await tx.product.update({ 
+          where: { id: pid }, 
+          data: { quantity: p.quantity + totalDelta } 
+        });
+      }
+
+      return { transaction: t, items: createdItems };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('create transaction error', err);
+    if (err.message && err.message.startsWith('not enough')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('exceeds')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('product not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message && (err.message.includes('supplier not found') || err.message.includes('destination not found') || err.message.includes('worker not found'))) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'failed to create transaction' });
+  }
+});
+
+app.post('/api/transactions/:id/items', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const { productId, delta } = req.body;
+
+  try {
+    const t = await prisma.transaction.findUnique({ where: { id: transactionId } });
+    if (!t) return res.status(404).json({ error: 'transaction not found' });
+
+    const product = await prisma.product.findUnique({ where: { id: Number(productId) } });
+    if (!product) return res.status(404).json({ error: 'product not found' });
+
+    const rawDelta = Number(delta);
+    if (!Number.isInteger(rawDelta) || rawDelta <= 0) {
+      return res.status(400).json({ error: 'delta must be positive integer' });
+    }
+
+    const numericDelta = t.type === 'out' ? -Math.abs(rawDelta) : Math.abs(rawDelta);
+    
+    if (t.type === 'out' && product.quantity + numericDelta < 0) {
+      return res.status(400).json({ error: 'not enough stock' });
+    }
+    if (t.type === 'in' && product.quantity + numericDelta > 65535) {
+      return res.status(400).json({ error: 'exceeds max stock 65535' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.transactionItem.create({
+        data: {
+          transactionId,
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku,
+          delta: numericDelta
+        }
+      });
+
+      await tx.product.update({
+        where: { id: product.id },
+        data: { quantity: product.quantity + numericDelta }
+      });
+
+      return item;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
+  }
+});
+
+app.delete('/api/transactions/:id/items/:itemId', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+
+  try {
+    const item = await prisma.transactionItem.findUnique({
+      where: { id: itemId },
+      include: { transaction: true, product: true }
+    });
+
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    if (item.transactionId !== transactionId) {
+      return res.status(400).json({ error: 'item does not belong to this transaction' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (item.product && item.delta !== 0) {
+        await tx.product.update({
+          where: { id: item.product.id },
+          data: { quantity: item.product.quantity - item.delta }
+        });
+      }
+
+      const deleted = await tx.transactionItem.delete({
+        where: { id: itemId }
+      });
+
+      return deleted;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
+  }
+});
+
+app.patch('/api/transactions/:id/items/:itemId', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+  const { delta } = req.body;
+
+  try {
+    const item = await prisma.transactionItem.findUnique({
+      where: { id: itemId },
+      include: { transaction: true, product: true }
+    });
+
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    if (item.transactionId !== transactionId) {
+      return res.status(400).json({ error: 'item does not belong to this transaction' });
+    }
+
+    const rawDelta = Number(delta);
+    if (!Number.isInteger(rawDelta) || rawDelta <= 0) {
+      return res.status(400).json({ error: 'delta must be positive integer' });
+    }
+
+    const numericDelta = item.transaction.type === 'out' ? -Math.abs(rawDelta) : Math.abs(rawDelta);
+    const oldDelta = item.delta;
+    const diff = numericDelta - oldDelta;
+
+    if (item.product) {
+      const newQty = item.product.quantity + diff;
+      if (newQty < 0) return res.status(400).json({ error: 'not enough stock' });
+      if (newQty > 65535) return res.status(400).json({ error: 'exceeds max stock' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (item.product) {
+        await tx.product.update({
+          where: { id: item.product.id },
+          data: { quantity: item.product.quantity + diff }
+        });
+      }
+
+      const updated = await tx.transactionItem.update({
+        where: { id: itemId },
+        data: { delta: numericDelta }
+      });
+
+      return updated;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
   }
 });
 

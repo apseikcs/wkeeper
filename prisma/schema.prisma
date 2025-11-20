@@ -8,85 +8,101 @@ datasource db {
 }
 
 model product {
-  id          Int           @id @default(autoincrement())
-  name        String
-  nameNormalized String      @unique
-  unit        String
-  quantity    Int
-  sku         String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  transactions transaction[]
+  id              Int               @id @default(autoincrement())
+  name            String
+  nameNormalized  String            @unique
+  unit            String
+  quantity        Int
+  sku             String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  transactions    transaction[]
+  transactionItem TransactionItem[]
 }
 
 model worker {
-  id        Int       @id @default(autoincrement())
-  fullName  String
-  phone     String?
-  position  String?
-  deleted   Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  assignments ToolAssignment[]
+  id           Int              @id @default(autoincrement())
+  fullName     String
+  phone        String?
+  position     String?
+  deleted      Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  assignments  ToolAssignment[]
   transactions transaction[]
 }
 
 model supplier {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  phone     String?
-  email     String?
-  deleted   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  phone        String?
+  email        String?
+  deleted      Boolean       @default(false)
+  createdAt    DateTime      @default(now())
   transactions transaction[]
 }
 
 model location {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  city      String?
-  district  String?
-  address   String?
-  deleted   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  city         String?
+  district     String?
+  address      String?
+  deleted      Boolean       @default(false)
+  createdAt    DateTime      @default(now())
   transactions transaction[]
 }
 
+model TransactionItem {
+  id            Int         @id @default(autoincrement())
+  transaction   transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transactionId Int
+  product       product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId     Int?
+  productName   String 
+  productSku    String? 
+  delta         Int 
+
+  @@index([transactionId])
+  @@index([productId])
+}
+
 model transaction {
-  id             Int       @id @default(autoincrement())
-  productName    String
-  product        product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productId      Int?
-  delta          Int
-  type           String   
-  date           DateTime  @default(now())
-  supplierName   String?   // LEGACY / display
-  destinationName String?  // LEGACY / display
-  supplier       supplier? @relation(fields: [supplierId], references: [id])
-  supplierId     Int?
-  destination    location? @relation(fields: [destinationId], references: [id])
-  destinationId  Int?
-  worker         worker?   @relation(fields: [workerId], references: [id])
-  workerId       Int?
-  note           String?
+  id              Int               @id @default(autoincrement())
+  type            String
+  date            DateTime          @default(now())
+  supplierName    String? // LEGACY / display снимок
+  destinationName String? // LEGACY / display снимок
+  supplier        supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId      Int?
+  destination     location?         @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  destinationId   Int?
+  worker          worker?           @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  workerId        Int?
+  note            String?
+  items           TransactionItem[]
+  createdAt       DateTime          @default(now())
+  product         product?          @relation(fields: [productId], references: [id])
+  productId       Int?
 }
 
 model tool {
-  id          Int      @id @default(autoincrement())
+  id          Int              @id @default(autoincrement())
   name        String
-  status      String   @default("available")
-  deleted     Boolean  @default(false)
+  status      String           @default("available")
+  deleted     Boolean          @default(false)
   assignments ToolAssignment[]
-  createdAt   DateTime @default(now())
+  createdAt   DateTime         @default(now())
 }
 
 model ToolAssignment {
-  id        Int      @id @default(autoincrement())
-  tool      tool     @relation(fields: [toolId], references: [id])
-  toolId    Int
-  worker    worker   @relation(fields: [workerId], references: [id])
-  workerId  Int
-  assignedAt DateTime @default(now())
+  id         Int       @id @default(autoincrement())
+  tool       tool      @relation(fields: [toolId], references: [id])
+  toolId     Int
+  worker     worker    @relation(fields: [workerId], references: [id])
+  workerId   Int
+  assignedAt DateTime  @default(now())
   returnedAt DateTime?
+
   @@index([toolId])
   @@index([workerId])
 }

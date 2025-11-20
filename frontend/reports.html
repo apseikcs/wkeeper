@@ -836,7 +836,6 @@
             a.href = url;
             
             const contentDisposition = response.headers.get('content-disposition') || '';
-            // Prefer RFC5987 filename* (UTF-8 percent-encoded), then fallback to filename="..."
             let filename = '';
             const fnStar = contentDisposition.match(/filename\\*=UTF-8''([^;\\n\\r]+)/i);
             if (fnStar && fnStar[1]) {

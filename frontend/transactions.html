@@ -68,7 +68,6 @@
       </div>
     </div>
 
-    <!-- Таблица проводок -->
     <div class="wk-card">
       <div class="table-container">
         <table class="wk-table" id="transactionsTable">
@@ -127,8 +126,59 @@
     function render(rows) {
       const tbody = document.querySelector('#transactionsTable tbody')
       tbody.innerHTML = ''
-      let items = rows.items || []
-      
+      const raw = rows.items || []
+
+      function txGroupKey(it) {
+        const dateIso = it.date ? new Date(it.date).toISOString().slice(0,19) : ''
+        return `${dateIso}|${it.type||''}|s:${it.supplierId||''}|d:${it.destinationId||''}|w:${it.workerId||''}|n:${it.note||''}`
+      }
+
+      const map = new Map()
+      raw.forEach(it => {
+        const key = txGroupKey(it)
+        if (!map.has(key)) {
+          map.set(key, {
+            ids: [],
+            date: it.date,
+            type: it.type,
+            supplier: it.supplier || null,
+            supplierName: it.supplierName || null,
+            destination: it.destination || null,
+            destinationName: it.destinationName || null,
+            worker: it.worker || null,
+            productMap: new Map(), 
+            totalDelta: 0,
+            note: it.note || ''
+          })
+        }
+        const g = map.get(key)
+        g.ids.push(it.id)
+        const qty = Math.abs(it.delta || 0)
+        g.totalDelta += qty
+        const pname = it.product && it.product.name ? it.product.name : (it.productName || '')
+        if (pname) {
+          g.productMap.set(pname, (g.productMap.get(pname) || 0) + qty)
+        }
+      })
+
+      let items = Array.from(map.values()).map(g => {
+        const productsArr = Array.from(g.productMap.entries()).map(([n, q]) => `${n}(${q})`)
+        const productsStr = productsArr.join(', ')
+        return {
+          id: g.ids[0],
+          date: g.date,
+          productName: productsStr,
+          delta: g.totalDelta,
+          type: g.type,
+          supplier: g.supplier ? g.supplier : undefined,
+          supplierName: g.supplierName,
+          destination: g.destination ? g.destination : undefined,
+          destinationName: g.destinationName,
+          worker: g.worker ? g.worker : undefined,
+          note: g.note
+        }
+      })
+
       if (currentSort === 'quantity_desc' || currentSort === 'quantity_asc') {
         const dir = currentSort === 'quantity_desc' ? -1 : 1
         items = items.slice().sort((a,b)=>{
@@ -138,13 +188,13 @@
           return da < db ? -1*dir : 1*dir
         })
       }
-      
+
       items.forEach(r => {
         const tr = document.createElement('tr')
         tr.innerHTML = `
           <td>${r.id}</td>
           <td>${formatDate(r.date)}</td>
-          <td>${r.product ? r.product.name : (r.productName || '')}</td>
+          <td>${r.productName || ''}</td>
           <td>${Math.abs(r.delta)}</td>
           <td class="type ${r.type}">${r.type}</td>
           <td>${r.supplier ? r.supplier.name : (r.supplierName || '')}</td>

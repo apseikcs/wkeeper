@@ -50,7 +50,7 @@
           <a class="wk-nav-item" href="tools.html">Инструменты</a>
         </nav>
         
-        <div class="wk-flex wk-gap-2 wk-flex-wrap justify-end">
+        <div class="wk-flex wk-gap-2 wk-flex-wrap justify-start">
           <button id="createProductBtn" class="wk-btn wk-btn-primary wk-btn-sm md:wk-btn">
             Создать товар
           </button>
@@ -121,7 +121,7 @@
     </div>
 
     <div id="modalRoot"></div>
-    <div id="notificationContainer" class="notification-container"></div>
+    <div id="notificationContainer" class="fixed top-4"></div>
   </div>
 
   <script src="auth.js"></script>
@@ -272,7 +272,7 @@
           const suppliers = (await supRes.json()).filter(s => s.name.toLowerCase().includes(v.toLowerCase()));
           
           dd.innerHTML = '';
-          
+
           products.forEach(p => {
             const el = document.createElement('div');
             el.textContent = p.name + ' [товар]';
@@ -524,7 +524,7 @@
             document.getElementById('bulkType').addEventListener('change', (e) => {
               renderBulkExtra(e.target.value);
             });
-  
+
             document.getElementById('cancelBulk').onclick = () => modalRoot.innerHTML = '';
   
             document.getElementById('bulkForm').onsubmit = async (e) => {
@@ -990,7 +990,7 @@
             </div>
           </div>
         `;
-        
+
         document.getElementById('cancel2').onclick = () => modalRoot.innerHTML = '';
         
         const suppliers = await authFetch('/api/suppliers').then(r => r.json());
@@ -1082,18 +1082,44 @@
 
         const tbody = document.getElementById('recentTransactionsTable').querySelector('tbody');
         tbody.innerHTML = '';
-        
-        recent.forEach(t => {
+
+        function txGroupKey(it) {
+          const dateIso = it.date ? new Date(it.date).toISOString().slice(0, 19) : '';
+          return `${dateIso}|${it.type||''}|s:${it.supplierId||''}|d:${it.destinationId||''}|w:${it.workerId||''}|n:${it.note||''}`;
+        }
+
+        const grouped = {};
+        (recent || []).forEach((it) => {
+          const key = txGroupKey(it);
+          if (!grouped[key]) {
+            grouped[key] = {
+              ids: [],
+              date: it.date,
+              type: it.type,
+              who: it.type === 'in'
+                ? (it.supplier?.name || it.supplierName || '—')
+                : (it.destination?.name || it.destinationName || '—'),
+              totalDelta: 0,
+              productMap: {}
+            };
+          }
+          grouped[key].ids.push(it.id);
+          const qty = Math.abs(it.delta || 0);
+          grouped[key].totalDelta += qty;
+          const prodName = (it.product && it.product.name) || it.productName || '—';
+          grouped[key].productMap[prodName] = (grouped[key].productMap[prodName] || 0) + qty;
+        });
+ 
+        Object.values(grouped).forEach((g) => {
           const tr = document.createElement('tr');
-          const who = t.type === 'in' 
-            ? (t.supplier?.name || t.supplierName || '—')
-            : (t.destination?.name || t.destinationName || '—');
+          const productsArr = Object.keys(g.productMap || {}).map(name => `${name}(${g.productMap[name]})`);
+          const productDisplay = productsArr.join(', ');
           tr.innerHTML = `
-            <td>${formatDate(t.date)}</td>
-            <td>${t.product?.name || t.productName}</td>
-            <td>${Math.abs(t.delta)}</td>
-            <td class="type ${t.type}">${t.type}</td>
-            <td>${who}</td>
+            <td>${formatDate(g.date)}</td>
+            <td>${productDisplay}</td>
+            <td>${g.totalDelta}</td>
+            <td class="type ${g.type}">${g.type}</td>
+            <td>${g.who}</td>
           `;
           tbody.appendChild(tr);
         });

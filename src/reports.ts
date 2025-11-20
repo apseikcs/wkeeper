@@ -53,65 +53,62 @@ export interface SupplierStats {
 }
 
 export async function getInventoryStatus(): Promise<InventoryStatus[]> {
-  const products = await prisma.product.findMany({
-    orderBy: { name: 'asc' }
-  })
+  const products = await prisma.product.findMany({ orderBy: { name: 'asc' } })
 
   const now = nowInMoscow();
   const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
   const monthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 
-  const txStats = await prisma.transaction.groupBy({
+  const monthlyByTypeIn = await prisma.transactionItem.groupBy({
     by: ['productId'],
     where: {
       productId: { in: products.map(p => p.id) },
-      date: { gte: monthStart, lte: monthEnd }
+      transaction: { date: { gte: monthStart, lte: monthEnd }, type: 'in' }
     },
     _sum: { delta: true }
-  })
-
-  const lastMovements = await prisma.transaction.groupBy({
+  });
+  const monthlyByTypeOut = await prisma.transactionItem.groupBy({
     by: ['productId'],
-    where: { productId: { in: products.map(p => p.id) } },
-    _max: { date: true }
-  })
-  const lastMoveMap = new Map(lastMovements.map(m => [m.productId, m._max.date]))
-
-  const monthlyFlows = await prisma.transaction.groupBy({
-    by: ['productId', 'type'],
     where: {
       productId: { in: products.map(p => p.id) },
-      date: { gte: monthStart, lte: monthEnd }
+      transaction: { date: { gte: monthStart, lte: monthEnd }, type: 'out' }
     },
     _sum: { delta: true }
-  })
-
-  const flowMap = new Map<number, { in: number, out: number }>()
-  monthlyFlows.forEach(f => {
-    if (!f.productId) return;
-    if (!flowMap.has(f.productId)) flowMap.set(f.productId, { in: 0, out: 0 });
-    const current = flowMap.get(f.productId)!;
-    if (f.type === 'in') current.in += f._sum.delta || 0;
-    if (f.type === 'out') current.out += Math.abs(f._sum.delta || 0);
   });
 
+  const flowIn = new Map(monthlyByTypeIn.map(f => [f.productId, ((f._sum as any)?.delta ?? 0)]));
+  const flowOut = new Map(monthlyByTypeOut.map(f => [f.productId, Math.abs(((f._sum as any)?.delta ?? 0))]));
+
+  const recentItems = await prisma.transactionItem.findMany({
+    where: { productId: { in: products.map(p => p.id) } },
+    include: { transaction: { select: { date: true } } },
+    orderBy: { transaction: { date: 'desc' } }
+  });
+  const lastMoveMap = new Map<number, Date>();
+  for (const it of recentItems) {
+    if (it.productId != null && !lastMoveMap.has(it.productId)) {
+      lastMoveMap.set(it.productId, it.transaction?.date || null as any);
+    }
+  }
+
   return products.map(p => {
-    const flows = flowMap.get(p.id) || { in: 0, out: 0 };
+    const inFlow = flowIn.get(p.id) || 0;
+    const outFlow = flowOut.get(p.id) || 0;
     return {
       id: p.id,
       name: p.name,
       currentStock: p.quantity,
       unit: p.unit,
-      monthlyInflow: flows.in,
-      monthlyOutflow: flows.out,
-      turnoverRate: p.quantity > 0 ? (flows.out / (p.quantity + flows.out)) : (flows.out > 0 ? 1 : 0),
+      monthlyInflow: inFlow,
+      monthlyOutflow: outFlow,
+      turnoverRate: p.quantity > 0 ? (outFlow / (p.quantity + outFlow)) : (outFlow > 0 ? 1 : 0),
       lastMovement: lastMoveMap.get(p.id) || null
-    }
-  })
+    } as InventoryStatus;
+  });
 }
 
 export async function getTransactionSummary(from?: Date, to?: Date): Promise<TransactionSummary> {
-  const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
+  const whereDate: any = {}
   if (from || to) {
     whereDate.date = {
       ...(from ? { gte: startOfDay(from) } : {}),
@@ -119,40 +116,59 @@ export async function getTransactionSummary(from?: Date, to?: Date): Promise<Tra
     }
   }
 
-  const transactions = await prisma.transaction.findMany({
+  const transactions: any[] = await prisma.transaction.findMany({
     where: whereDate,
-    include: {
-      product: true,
-      worker: true,
-      supplier: true,
-      destination: true
-    },
+    include: { items: true, worker: true, supplier: true, destination: true, product: true },
     orderBy: { date: 'desc' }
-  })
-
-  const dailyTotals = transactions.reduce((acc, t) => {
-    const day = startOfDay(new Date(t.date)).toISOString()
-    if (!acc[day]) acc[day] = { in: 0, out: 0, total: 0 }
-    if (t.type === 'in') acc[day].in++
-    if (t.type === 'out') acc[day].out++
-    acc[day].total++
-    return acc
-  }, {} as Record<string, { in: number, out: number, total: number }>)
-
+  });
+   
+  const dailyTotals = transactions.reduce((acc: Record<string, { in: number, out: number, total: number }>, t: any) => {
+    const day = startOfDay(new Date(t.date)).toISOString();
+    if (!acc[day]) acc[day] = { in: 0, out: 0, total: 0 };
+    const countItems = Array.isArray(t.items) ? t.items.length : 1;
+    if (t.type === 'in') acc[day].in += countItems;
+    if (t.type === 'out') acc[day].out += countItems;
+    acc[day].total += countItems;
+    return acc;
+  }, {});
+ 
   const sortedDaily = Object.entries(dailyTotals)
     .map(([date, stats]) => ({ date, ...stats }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  const flatItems = transactions.flatMap((t: any) => {
+    if (Array.isArray(t.items) && t.items.length) {
+      return t.items.map((item: any) => ({
+        productId: item.productId,
+        productName: item.productName || (item.product && item.product.name),
+        delta: item.delta,
+        type: t.type,
+        workerId: t.workerId,
+        supplierId: t.supplierId,
+        destinationId: t.destinationId
+      }));
+    }
+    return [{
+      productId: t.productId,
+      productName: t.productName || (t.product && t.product.name),
+      delta: t.delta,
+      type: t.type,
+      workerId: t.workerId,
+      supplierId: t.supplierId,
+      destinationId: t.destinationId
+    }];
+  });
+
   return {
-    total: transactions.length,
-    incoming: transactions.filter(t => t.type === 'in').length,
-    outgoing: transactions.filter(t => t.type === 'out').length,
-    byProduct: groupBy(transactions.filter(t => t.productId !== null), t => t.productId!),
-    byWorker: groupBy(transactions.filter(t => t.workerId !== null), t => t.workerId!),
-    bySupplier: groupBy(transactions.filter(t => t.supplierId !== null), t => t.supplierId!),
-    byDestination: groupBy(transactions.filter(t => t.destinationId !== null), t => t.destinationId!),
+    total: flatItems.length,
+    incoming: flatItems.filter(i => i.type === 'in').length,
+    outgoing: flatItems.filter(i => i.type === 'out').length,
+    byProduct: groupBy(flatItems.filter(i => i.productId !== null && i.productId !== undefined), i => i.productId!),
+    byWorker: groupBy(flatItems.filter(i => i.workerId !== null && i.workerId !== undefined), i => i.workerId!),
+    bySupplier: groupBy(flatItems.filter(i => i.supplierId !== null && i.supplierId !== undefined), i => i.supplierId!),
+    byDestination: groupBy(flatItems.filter(i => i.destinationId !== null && i.destinationId !== undefined), i => i.destinationId!),
     daily: sortedDaily
-  }
+  } as TransactionSummary;
 }
 
 function groupBy<T, K extends string | number | symbol>(array: T[], keySelector: (item: T) => K): Record<K, T[]> {
@@ -167,7 +183,7 @@ function groupBy<T, K extends string | number | symbol>(array: T[], keySelector:
 }
 
 export async function getTopProducts(from?: Date, to?: Date, limit: number = 20) {
-  const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
+  const whereDate: any = {}
   if (from || to) {
     whereDate.date = {
       ...(from ? { gte: startOfDay(from) } : {}),
@@ -175,22 +191,21 @@ export async function getTopProducts(from?: Date, to?: Date, limit: number = 20)
     }
   }
 
-  const result = await prisma.transaction.groupBy({
+  const result = await prisma.transactionItem.groupBy({
     by: ['productId', 'productName'],
     where: {
-      type: 'out',
-      ...whereDate
+      transaction: { type: 'out', ...whereDate }
     },
     _sum: { delta: true },
-    orderBy: { _sum: { delta: 'asc' } },
+    orderBy: { _sum: { delta: 'desc' } as any },
     take: limit
-  })
-
+  });
+  
   return result.map(r => ({
     id: r.productId,
     name: r.productName,
-    total: Math.abs(r._sum.delta || 0)
-  }))
+    total: Math.abs(((r._sum as any)?.delta ?? 0))
+  }));
 }
 
 export async function getLowStock(threshold: number = 10) {
@@ -216,7 +231,7 @@ function toCsv(data: any[], columns: { key: string, title: string }[]): string {
 }
 
 export async function getWorkerPerformance(from?: Date, to?: Date): Promise<WorkerPerformance[]> {
-  const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
+  const whereDate: any = {}
   if (from || to) {
     whereDate.date = {
       ...(from ? { gte: startOfDay(from) } : {}),
@@ -224,27 +239,31 @@ export async function getWorkerPerformance(from?: Date, to?: Date): Promise<Work
     }
   }
 
-  const stats = await prisma.transaction.groupBy({
-    by: ['workerId'],
-    where: {
-      type: 'out',
-      workerId: { not: null },
-      ...whereDate
-    },
-    _count: { id: true },
-    _sum: { delta: true },
-  })
+  const workerRows = await prisma.transaction.findMany({
+    where: { type: 'out', workerId: { not: null }, ...whereDate },
+    select: { workerId: true },
+    distinct: ['workerId']
+  });
+  const workerIds = workerRows.map(t => t.workerId).filter(Boolean) as number[];
+
+  const results = await Promise.all(workerIds.map(async wid => {
+    const count = await prisma.transactionItem.count({
+      where: { transaction: { type: 'out', workerId: wid, ...whereDate } }
+    });
+    const sum = await prisma.transactionItem.aggregate({
+      where: { transaction: { type: 'out', workerId: wid, ...whereDate } },
+      _sum: { delta: true }
+    });
+    const worker = await prisma.worker.findUnique({ where: { id: wid } });
+    return {
+      workerId: wid,
+      workerName: worker?.fullName || `удаленный #${wid}`,
+      transactionCount: count,
+      totalQuantity: Math.abs(((sum._sum as any)?.delta ?? 0))
+    } as WorkerPerformance;
+  }));
 
   const workers = await prisma.worker.findMany({ where: { deleted: false } })
-  const workerMap = new Map(workers.map(w => [w.id, w.fullName]))
-
-  const results = stats.map(s => ({
-    workerId: s.workerId!,
-    workerName: workerMap.get(s.workerId!) || `удаленный #${s.workerId}`,
-    transactionCount: s._count.id,
-    totalQuantity: Math.abs(s._sum.delta || 0)
-  }))
-
   workers.forEach(w => {
     if (!results.some(r => r.workerId === w.id)) {
       results.push({
@@ -266,17 +285,15 @@ export async function getConsumptionForecast(periodDays: number = 30): Promise<C
   const periodStart = new Date()
   periodStart.setDate(periodStart.getDate() - periodDays)
 
-  const consumption = await prisma.transaction.groupBy({
+  const consumption = await prisma.transactionItem.groupBy({
     by: ['productId'],
     where: {
-      type: 'out',
-      productId: { in: products.map(p => p.id) },
-      date: { gte: periodStart }
+      transaction: { type: 'out', date: { gte: periodStart } }
     },
     _sum: { delta: true }
-  })
-
-  const consumptionMap = new Map(consumption.map(c => [c.productId, Math.abs(c._sum.delta || 0)]))
+  });
+  
+  const consumptionMap = new Map(consumption.map(c => [c.productId, Math.abs(((c._sum as any)?.delta ?? 0))]));
 
   const forecast = products.map(p => {
     const totalConsumed = consumptionMap.get(p.id) || 0
@@ -298,7 +315,7 @@ export async function getConsumptionForecast(periodDays: number = 30): Promise<C
 }
 
 export async function getDestinationStats(from?: Date, to?: Date): Promise<DestinationStats[]> {
-  const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
+  const whereDate: any = {}
   if (from || to) {
     whereDate.date = {
       ...(from ? { gte: startOfDay(from) } : {}),
@@ -306,32 +323,35 @@ export async function getDestinationStats(from?: Date, to?: Date): Promise<Desti
     }
   }
 
-  const stats = await prisma.transaction.groupBy({
-    by: ['destinationId'],
-    where: {
-      type: 'out',
-      destinationId: { not: null },
-      ...whereDate
-    },
-    _count: { id: true },
-    _sum: { delta: true },
+  const destRows = await prisma.transaction.findMany({
+    where: { type: 'out', destinationId: { not: null }, ...whereDate },
+    select: { destinationId: true },
+    distinct: ['destinationId']
   })
+  const destIds = destRows.map(t => t.destinationId).filter(Boolean) as number[]
 
-  const locations = await prisma.location.findMany({ where: { deleted: false } })
-  const locationMap = new Map(locations.map(l => [l.id, l.name]))
+  const results = await Promise.all(destIds.map(async did => {
+    const count = await prisma.transactionItem.count({
+      where: { transaction: { type: 'out', destinationId: did, ...whereDate } }
+    });
+    const sum = await prisma.transactionItem.aggregate({
+      where: { transaction: { type: 'out', destinationId: did, ...whereDate } },
+      _sum: { delta: true }
+    });
+    const dest = await prisma.location.findUnique({ where: { id: did } })
+    return {
+      destinationId: did,
+      destinationName: dest?.name || `удаленный #${did}`,
+      transactionCount: count,
+      totalQuantity: Math.abs(((sum._sum as any)?.delta ?? 0))
+    }
+  }))
 
-  return stats
-    .map(s => ({
-      destinationId: s.destinationId!,
-      destinationName: locationMap.get(s.destinationId!) || `удаленный #${s.destinationId}`,
-      transactionCount: s._count.id,
-      totalQuantity: Math.abs(s._sum.delta || 0)
-    }))
-    .sort((a, b) => b.totalQuantity - a.totalQuantity)
+  return results.sort((a, b) => b.totalQuantity - a.totalQuantity)
 }
 
 export async function getSupplierStats(from?: Date, to?: Date): Promise<SupplierStats[]> {
-  const whereDate: { date?: { gte?: Date, lte?: Date } } = {}
+  const whereDate: any = {}
   if (from || to) {
     whereDate.date = {
       ...(from ? { gte: startOfDay(from) } : {}),
@@ -339,28 +359,31 @@ export async function getSupplierStats(from?: Date, to?: Date): Promise<Supplier
     }
   }
 
-  const stats = await prisma.transaction.groupBy({
-    by: ['supplierId'],
-    where: {
-      type: 'in',
-      supplierId: { not: null },
-      ...whereDate
-    },
-    _count: { id: true },
-    _sum: { delta: true },
+  const supRows = await prisma.transaction.findMany({
+    where: { type: 'in', supplierId: { not: null }, ...whereDate },
+    select: { supplierId: true },
+    distinct: ['supplierId']
   })
+  const supIds = supRows.map(t => t.supplierId).filter(Boolean) as number[]
 
-  const suppliers = await prisma.supplier.findMany({ where: { deleted: false } })
-  const supplierMap = new Map(suppliers.map(s => [s.id, s.name]))
+  const results = await Promise.all(supIds.map(async sid => {
+    const count = await prisma.transactionItem.count({
+      where: { transaction: { type: 'in', supplierId: sid, ...whereDate } }
+    });
+    const sum = await prisma.transactionItem.aggregate({
+      where: { transaction: { type: 'in', supplierId: sid, ...whereDate } },
+      _sum: { delta: true }
+    });
+    const sup = await prisma.supplier.findUnique({ where: { id: sid } })
+    return {
+      supplierId: sid,
+      supplierName: sup?.name || `удаленный #${sid}`,
+      transactionCount: count,
+      totalQuantity: ((sum._sum as any)?.delta ?? 0)
+    }
+  }))
 
-  return stats
-    .map(s => ({
-      supplierId: s.supplierId!,
-      supplierName: supplierMap.get(s.supplierId!) || `удаленный #${s.supplierId}`,
-      transactionCount: s._count.id,
-      totalQuantity: s._sum.delta || 0
-    }))
-    .sort((a, b) => b.totalQuantity - a.totalQuantity)
+  return results.sort((a, b) => b.totalQuantity - a.totalQuantity)
 }
 
 export async function exportToCsv(type: string, from?: Date, to?: Date, extra: any = {}): Promise<{ csv: string, filename: string }> {
@@ -427,30 +450,62 @@ export async function exportToCsv(type: string, from?: Date, to?: Date, extra: a
         ...(to ? { lte: endOfDay(to) } : {})
       }
     }
-    const data = await prisma.transaction.findMany({
+    const data: any[] = await prisma.transaction.findMany({
       where: whereDate,
-      include: { worker: true, supplier: true, destination: true },
+      include: {
+        items: { include: { product: true } },
+        worker: true,
+        supplier: true,
+        destination: true,
+        product: true
+      },
       orderBy: { date: 'desc' }
-    })
-    const csv = toCsv(data.map(t => ({
-      ...t,
-      date: new Date(t.date).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }),
-      delta: Math.abs(t.delta),
-      workerName: t.worker?.fullName || '',
-      supplierName: t.supplier?.name || t.supplierName || '',
-      destinationName: t.destination?.name || t.destinationName || ''
-    })), [
-      { key: 'id', title: 'ID' },
-      { key: 'date', title: 'Дата' },
-      { key: 'productName', title: 'Товар' },
-      { key: 'delta', title: 'Количество' },
-      { key: 'type', title: 'Тип' },
-      { key: 'supplierName', title: 'Поставщик' },
-      { key: 'destinationName', title: 'Объект' },
-      { key: 'workerName', title: 'Работник' },
-      { key: 'note', title: 'Примечание' }
-    ])
-    return { csv, filename: `Проводки-${ts}.csv` }
-  }
-  throw new Error('unknown export type')
+    });
+
+    const rows = data.map(t => {
+      const items = Array.isArray(t.items) && t.items.length ? t.items : (t.items || []);
+      const map = new Map<string, number>();
+      let total = 0;
+      items.forEach((it: any) => {
+        const name = it.productName || (it.product && it.product.name) || '—';
+        const qty = Math.abs(it.delta || 0);
+        total += qty;
+        map.set(name, (map.get(name) || 0) + qty);
+      });
+
+      if (items.length === 0 && (t.productName || t.product)) {
+        const name = t.productName || (t.product && t.product.name) || '—';
+        const qty = Math.abs(t.delta || 0);
+        total = qty;
+        map.set(name, (map.get(name) || 0) + qty);
+      }
+
+      const itemsStr = Array.from(map.entries()).map(([n, q]) => `${n}(${q})`).join(', ');
+
+      return {
+        id: t.id,
+        date: new Date(t.date).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }),
+        productName: itemsStr,
+        delta: total,
+        type: t.type,
+        supplierName: t.supplier?.name || t.supplierName || '',
+        destinationName: t.destination?.name || t.destinationName || '',
+        workerName: t.worker?.fullName || '',
+        note: t.note || ''
+      };
+    });
+     const csv = toCsv(rows, [
+       { key: 'id', title: 'ID' },
+       { key: 'date', title: 'Дата' },
+       { key: 'productName', title: 'Товар' },
+       { key: 'delta', title: 'Количество' },
+       { key: 'type', title: 'Тип' },
+       { key: 'supplierName', title: 'Поставщик' },
+       { key: 'destinationName', title: 'Объект' },
+       { key: 'workerName', title: 'Работник' },
+       { key: 'note', title: 'Примечание' }
+     ])
+     return { csv, filename: `Проводки-${ts}.csv` }
+   }
+   throw new Error('unknown export type')
 }

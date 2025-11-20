@@ -7,7 +7,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="styles/ui-kit.css">
   <link rel="stylesheet" href="styles/pages/suppliers.css">
-  </style>
 </head>
 <body class="wk-base wk-p-4 md:wk-p-6">
   <div class="wk-container">
@@ -201,10 +200,9 @@
               <span class="wk-badge wk-badge-primary">#${supplier.id}</span>
               <button class="wk-text-gray-400 hover:wk-text-blue-500 wk-transition-colors edit-supplier" 
                       data-id="${supplier.id}" aria-label="Редактировать поставщика" title="Редактировать">
-                <!-- edit icon -->
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h6M4 7v10a2 2 0 002 2h10l4-4V7a2 2 0 00-2-2H6a2 2 0 00-2 2z"/>
-                </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
               </button>
               <button class="wk-text-gray-400 hover:wk-text-red-500 wk-transition-colors delete-supplier" 
                       data-id="${supplier.id}" aria-label="Удалить поставщика" title="Удалить">
@@ -254,7 +252,7 @@
       modalRoot.innerHTML = `
         <div class="modal">
           <div class="modal-content">
-            <div class="wk-p-6">
+            <div class="p-0">
               <h2 class="wk-card-title wk-mb-4">${isEdit ? 'Редактирование' : 'Добавление'} поставщика</h2>
               
               <form id="supplierForm">
@@ -297,7 +295,7 @@
                   >
                 </div>
                 
-                <div class="wk-flex wk-justify-end wk-gap-3">
+                <div class="flex gap-3">
                   <button type="button" id="cancelBtn" class="wk-btn wk-btn-secondary">Отмена</button>
                   <button type="submit" class="wk-btn wk-btn-primary">${isEdit ? 'Сохранить' : 'Добавить'}</button>
                 </div>
@@ -371,11 +369,11 @@
       modalRoot.innerHTML = `
         <div class="modal">
           <div class="modal-content">
-            <div class="wk-p-6">
-              <h2 class="wk-card-title wk-mb-2">Подтверждение удаления</h2>
+            <div class="p-0">
+              <h2 class="wk-card-title mb-2">Подтверждение удаления</h2>
               <p class="wk-text-gray-600 wk-mb-6">Вы уверены, что хотите удалить поставщика <strong>${escapeHtml(supplier.name)}</strong>? Поставщик будет помечен как удалённый, а история проводок сохранится.</p>
               
-              <div class="wk-flex wk-justify-end wk-gap-3">
+              <div class="flex gap-3">
                 <button id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
                 <button id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
               </div>
