@@ -357,7 +357,7 @@
         document.getElementById('modalRoot').innerHTML = '';
         await load(); 
         
-        showSuccess(`Поставщик успешно ${isEdit ? 'обновлён' : 'добавлен'}`);
+        showSuccess(`Поставщик ${isEdit ? 'обновлён' : 'добавлен'}`);
       } catch (error) {
         console.error('Ошибка сохранения поставщика:', error);
         showError(`Ошибка при ${isEdit ? 'сохранении' : 'добавлении'}: ${error.message}`);
