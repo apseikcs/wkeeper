@@ -59,10 +59,7 @@
         
         <div class="wk-flex flex-col gap-4 flex-wrap">          
           <div class="export-controls">
-            <!-- main export method: Excel (XLSX) -->
             <button id="exportAllTx" class="wk-btn wk-btn-primary" type="button">Экспорт (XLS)</button>
-            <!-- optional PDF export -->
-            <button id="exportAllTxPdf" class="wk-btn wk-btn-secondary wk-btn-sm" type="button">PDF</button>
           </div>
            <p class="wk-text-sm wk-text-muted">
              Период применяется ко всем отчётам ниже, включая экспорт проводок.
@@ -115,7 +112,6 @@
             Обновить
           </button>
           <button id="exportTop" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-          <button id="exportTopPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
         </div>
       </div>
       <div id="topProductsLoading" class="wk-loading-spinner hidden"></div>
@@ -148,7 +144,6 @@
               Обновить
             </button>
             <button id="exportLow" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-            <button id="exportLowPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
       </div>
@@ -178,7 +173,6 @@
             Обновить
           </button>
           <button id="exportWorkers" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-          <button id="exportWorkersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
         </div>
       </div>
       <div id="workersLoading" class="wk-loading-spinner hidden"></div>
@@ -212,7 +206,6 @@
               Обновить
             </button>
             <button id="exportForecast" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-            <button id="exportForecastPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
       </div>
@@ -244,7 +237,6 @@
               Обновить
             </button>
             <button id="exportDestinations" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-            <button id="exportDestinationsPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
         <div id="destinationsLoading" class="wk-loading-spinner hidden"></div>
@@ -277,7 +269,6 @@
               Обновить
             </button>
             <button id="exportSuppliers" class="wk-btn wk-btn-primary">Экспорт (XLS)</button>
-            <button id="exportSuppliersPdf" class="wk-btn wk-btn-secondary wk-btn-sm">PDF</button>
           </div>
         </div>
         <div id="suppliersLoading" class="wk-loading-spinner hidden"></div>
@@ -901,26 +892,13 @@
           });
         }
  
-        attachExport('exportAllTx', 'transactions', { format: 'excel' });
-        attachExport('exportAllTxPdf', 'transactions', { format: 'pdf' });
- 
-        attachExport('exportTop', 'top-products', { limit: 100, format: 'excel' });
-        attachExport('exportTopPdf', 'top-products', { limit: 100, format: 'pdf' });
- 
-        attachExport('exportLow', 'low-stock', { threshold: Number(document.getElementById('lowThreshold').value) || 10, format: 'excel' });
-        attachExport('exportLowPdf', 'low-stock', { format: 'pdf' });
- 
-        attachExport('exportWorkers', 'worker-performance', { format: 'excel' });
-        attachExport('exportWorkersPdf', 'worker-performance', { format: 'pdf' });
- 
-        attachExport('exportForecast', 'consumption-forecast', { days: Number(document.getElementById('forecastDays').value) || 30, format: 'excel' });
-        attachExport('exportForecastPdf', 'consumption-forecast', { format: 'pdf' });
- 
-        attachExport('exportDestinations', 'destination-stats', { format: 'excel' });
-        attachExport('exportDestinationsPdf', 'destination-stats', { format: 'pdf' });
- 
-        attachExport('exportSuppliers', 'supplier-stats', { format: 'excel' });
-        attachExport('exportSuppliersPdf', 'supplier-stats', { format: 'pdf' });
+         attachExport('exportAllTx', 'transactions', { format: 'excel' });
+         attachExport('exportTop', 'top-products', { limit: 100, format: 'excel' });
+         attachExport('exportLow', 'low-stock', { threshold: Number(document.getElementById('lowThreshold').value) || 10, format: 'excel' });
+         attachExport('exportWorkers', 'worker-performance', { format: 'excel' });
+         attachExport('exportForecast', 'consumption-forecast', { days: Number(document.getElementById('forecastDays').value) || 30, format: 'excel' });
+         attachExport('exportDestinations', 'destination-stats', { format: 'excel' });
+         attachExport('exportSuppliers', 'supplier-stats', { format: 'excel' });
  
          document.getElementById('logoutBtn').addEventListener('click', logout);
        }
