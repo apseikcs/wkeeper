@@ -76,12 +76,10 @@
     async function fetchWorkers() {
       try {
         const response = await authFetch('/api/workers');
-        if (!response.ok) {
-          throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
       } catch (error) {
-        console.error('Ошибка при загрузке сотрудников:', error);
+        console.error('Ошибка загрузки:', error);
         showError('Не удалось загрузить список сотрудников');
         return [];
       }
@@ -101,30 +99,22 @@
         <div class="flex justify-between items-start">
           <div class="flex-1">
             <strong class="font-bold">Ошибка! </strong>
-            <span class="block sm:inline">${escapeHtml(message)}</span>
+            <span>${escapeHtml(message)}</span>
           </div>
-          <button type="button" class="ml-4 text-red-700 hover:text-red-900">
+          <button type="button" class="ml-4 text-red-700 hover:text-red-900" onclick="this.parentElement.parentElement.remove()">
             <span class="text-xl">&times;</span>
           </button>
         </div>
       `;
       
-      errorEl.querySelector('button').addEventListener('click', () => {
-        errorEl.remove();
-      });
-      
-      setTimeout(() => {
-        if (errorEl && errorEl.parentNode) {
-          errorEl.remove();
-        }
-      }, 5000);
+      setTimeout(() => { if (errorEl && errorEl.parentNode) errorEl.remove(); }, 5000);
     }
 
     function renderWorkers(workersList) {
       const grid = document.getElementById('workersGrid');
       const emptyState = document.getElementById('emptyState');
       
-      const activeWorkers = workersList.filter(worker => !worker.deleted);
+      const activeWorkers = workersList.filter(w => !w.deleted);
       
       if (activeWorkers.length === 0) {
         grid.classList.add('hidden');
@@ -137,9 +127,6 @@
       grid.innerHTML = '';
       
       activeWorkers.forEach(worker => {
-        const currentAssignment = (worker.assignments && worker.assignments.length) ? worker.assignments[0] : null;
-        const currentTool = currentAssignment ? currentAssignment.tool : null;
-
         const card = document.createElement('div');
         card.className = 'wk-card worker-card flex flex-col gap-2';
         card.innerHTML = `
@@ -174,40 +161,47 @@
           </div>
           
           <div class="worker-card__tools">
-            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструмент:</div>
-            <div class="wk-text-sm">${currentTool ? escapeHtml(currentTool.name) : 'Не назначен'}</div>
+            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструменты (${(worker.assignments || []).length}):</div>
+            ${(worker.assignments && worker.assignments.length) ? `
+              <ul class="wk-space-y-1 flex flex-col gap-2">
+                ${worker.assignments.map(assignment => `
+                  <li class="wk-flex wk-items-center wk-justify-between wk-gap-2 wk-text-sm wk-p-2 wk-bg-gray-50 wk-rounded">
+                    <span class="text-base">${escapeHtml(assignment.tool.name)}</span>
+                    <button class="wk-btn wk-btn-danger wk-btn-xs unassign-tool-btn p-2" 
+                            data-worker="${worker.id}" 
+                            data-tool="${assignment.tool.id}"
+                            data-tool-name="${escapeHtml(assignment.tool.name)}">
+                      ✕
+                    </button>
+                  </li>
+                `).join('')}
+              </ul>
+            ` : '<div class="wk-text-sm wk-text-gray-400">Не назначено</div>'}
           </div>
           
           <div class="worker-card__actions">
-            ${ currentTool 
-               ? `<button class="wk-btn wk-btn-secondary wk-btn-sm unassign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}" data-tool="${currentTool.id}">
-                    Снять инструмент
-                  </button>`
-               : `<button class="wk-btn wk-btn-primary wk-btn-sm assign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}">
-                    Выдать инструмент
-                  </button>` }
+            <button class="wk-btn wk-btn-primary wk-btn-sm assign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}">
+              + Выдать инструмент
+            </button>
           </div>
         `;
         
-        const deleteBtn = card.querySelector('button[data-id]');
         const editBtn = card.querySelector('.edit-worker');
         const delBtn = card.querySelector('.delete-worker');
         if (editBtn) editBtn.addEventListener('click', () => openEditWorkerModal(worker));
         if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(worker));
         
         const assignBtn = card.querySelector('.assign-btn');
-        if (assignBtn) {
-          assignBtn.addEventListener('click', () => openAssignModal(worker));
-        }
-
-        const unassignBtn = card.querySelector('.unassign-btn');
-        if (unassignBtn) {
-          unassignBtn.addEventListener('click', () => {
-            const wid = Number(unassignBtn.getAttribute('data-worker'));
-            const tid = Number(unassignBtn.getAttribute('data-tool'));
-            openUnassignModal(wid, tid, worker.fullName, currentTool.name);
+        if (assignBtn) assignBtn.addEventListener('click', () => openAssignModal(worker));
+        
+        card.querySelectorAll('.unassign-tool-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const wid = Number(btn.getAttribute('data-worker'));
+            const tid = Number(btn.getAttribute('data-tool'));
+            const toolName = btn.getAttribute('data-tool-name');
+            openUnassignModal(wid, tid, worker.fullName, toolName);
           });
-        }
+        });
 
         grid.appendChild(card);
       });
@@ -217,9 +211,7 @@
       const modalRoot = document.getElementById('modalRoot');
       
       const allTools = await authFetch('/api/tools').then(r => r.json());
-      const available = (allTools || []).filter(t => {
-        return !(t.assignments && t.assignments.length);
-      });
+      const available = (allTools || []).filter(t => !(t.assignments && t.assignments.length));
 
       modalRoot.innerHTML = `
         <div class="modal">
@@ -258,9 +250,7 @@
         }
         
         try {
-          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { 
-            method: 'POST' 
-          });
+          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { method: 'POST' });
           
           if (!resp.ok) {
             const j = await resp.json().catch(() => ({}));
@@ -304,9 +294,7 @@
 
     async function unassignTool(workerId, toolId) {
       try {
-        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { 
-          method: 'POST' 
-        });
+        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { method: 'POST' });
         
         if (!resp.ok) {
           const j = await resp.json().catch(() => ({}));
@@ -340,32 +328,22 @@
       `;
       
       document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteWorker(worker.id));
-      document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
-        modalRoot.innerHTML = '';
-      });
-      
-      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) {
-          modalRoot.innerHTML = '';
-        }
-      });
+      document.getElementById('cancelDeleteBtn').addEventListener('click', () => { modalRoot.innerHTML = ''; });
     }
 
     async function deleteWorker(id) {
       try {
-        const response = await authFetch(`/api/workers/${id}`, { 
-          method: 'DELETE' 
-        });
+        const response = await authFetch(`/api/workers/${id}`, { method: 'DELETE' });
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+          throw new Error(errorData.error || `Ошибка: ${response.status}`);
         }
         
         document.getElementById('modalRoot').innerHTML = '';
         await load();
       } catch (error) {
-        console.error('Ошибка удаления:', error);
+        console.error('Ошибка:', error);
         showError('Ошибка при удалении: ' + error.message);
       }
     }
@@ -391,7 +369,7 @@
               
               <div class="wk-form-group">
                 <label class="wk-form-label">Должность</label>
-                <input class="wk-form-input" name="position" placeholder="Менеджер по закупкам">
+                <input class="wk-form-input" name="position" placeholder="Электрик">
               </div>
               
               <div id="addError" class="wk-alert wk-alert-error hidden"></div>
@@ -406,21 +384,7 @@
       `;
       
       document.getElementById('addWorkerForm').addEventListener('submit', handleAddWorker);
-      document.getElementById('cancelAddBtn').addEventListener('click', () => {
-        modalRoot.innerHTML = '';
-      });
-      
-      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) {
-          modalRoot.innerHTML = '';
-        }
-      });
-
-      modalRoot.querySelector('.modal-card').addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) {
-          modalRoot.innerHTML = '';
-        }
-      })
+      document.getElementById('cancelAddBtn').addEventListener('click', () => { modalRoot.innerHTML = ''; });
     }
 
     function openEditWorkerModal(worker) {
@@ -449,32 +413,32 @@
             </form>
           </div>
         </div>
-      `
-      document.getElementById('cancelEditWorker').onclick = () => modalRoot.innerHTML = ''
+      `;
+      document.getElementById('cancelEditWorker').onclick = () => modalRoot.innerHTML = '';
       document.getElementById('editWorkerForm').onsubmit = async (e) => {
-        e.preventDefault()
-        const f = e.target
+        e.preventDefault();
+        const f = e.target;
         const payload = {
           fullName: f.fullName.value.trim(),
           phone: f.phone.value.trim() || null,
           position: f.position.value.trim() || null
-        }
+        };
         try {
           const resp = await authFetch(`/api/workers/${worker.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-          })
+          });
           if (!resp.ok) {
-            const j = await resp.json().catch(()=>({}))
-            throw new Error(j.error || 'Ошибка')
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Ошибка');
           }
-          modalRoot.innerHTML = ''
-          await load()
+          modalRoot.innerHTML = '';
+          await load();
         } catch (err) {
-          showError('Ошибка при сохранении: ' + (err.message || err))
+          showError('Ошибка при сохранении: ' + (err.message || err));
         }
-      }
+      };
     }
 
     async function handleAddWorker(e) {
@@ -491,7 +455,7 @@
       };
       
       if (!payload.fullName) {
-        errorEl.textContent = 'Поле "ФИО" обязательно для заполнения';
+        errorEl.textContent = 'Поле "ФИО" обязательно';
         errorEl.classList.remove('hidden');
         return;
       }
@@ -501,19 +465,17 @@
       try {
         const response = await authFetch('/api/workers', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+          throw new Error(errorData.error || `Ошибка: ${response.status}`);
         }
-        
+
         document.getElementById('modalRoot').innerHTML = '';
-        await load(); 
+        await load();
       } catch (error) {
         console.error('Ошибка добавления:', error);
         errorEl.textContent = 'Ошибка при добавлении: ' + error.message;

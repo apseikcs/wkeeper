@@ -170,8 +170,8 @@
       const modalRoot = document.getElementById('modalRoot');
       
       const allWorkers = await authFetch('/api/workers').then(r => r.json());
-      const available = (allWorkers || []).filter(w => !(w.assignments && w.assignments.length));
-
+      const available = (allWorkers || []);
+ 
       modalRoot.innerHTML = `
         <div class="modal">
           <div class="modal-card">
@@ -307,8 +307,8 @@
             <h3 class="wk-card-title wk-mb-4">Изменить инструмент #${tool.id}</h3>
             <form id="editToolForm">
               <div class="wk-form-group">
-                <label class="wk-form-label">Статус</label>
-                <input class="wk-form-input" name="status" value="${escapeHtml(tool.status)}" required placeholder="Введите статус инструмента">
+                <label class="wk-form-label">Название</label>
+                <input class="wk-form-input" name="name" value="${escapeHtml(tool.name)}" required placeholder="Введите название инструмента">
               </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
                 <button type="button" id="cancelEditBtn" class="wk-btn wk-btn-secondary">Отмена</button>
@@ -318,7 +318,7 @@
           </div>
         </div>
       `;
-
+ 
       document.getElementById('editToolForm').addEventListener('submit', (e) => handleEditTool(e, tool.id));
       document.getElementById('cancelEditBtn').addEventListener('click', () => {
         modalRoot.innerHTML = '';
@@ -333,15 +333,15 @@
 
     async function handleEditTool(e, id) {
       e.preventDefault();
-
+ 
       const form = e.target;
       const payload = {
-        status: form.status.value.trim()
+        name: form.name.value.trim()
       };
-
+ 
       await updateTool(id, payload);
     }
-
+ 
     async function updateTool(id, payload) {
       try {
         const response = await authFetch(`/api/tools/${id}`, {

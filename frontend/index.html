@@ -951,117 +951,140 @@
     async function openCreateProductModal() {
       try {
         const modalRoot = document.getElementById('modalRoot');
-        modalRoot.innerHTML = `
-          <div class="modal">
-            <div class="modal-card">
-              <h3 class="wk-card-title wk-mb-4">Создать товар</h3>
-              <form id="createForm">
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Название</label>
-                  <input class="wk-form-input" name="name" required>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Ед.изм</label>
-                  <input class="wk-form-input" name="unit" value="шт">
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Поставщик (необязательно)</label>
-                  <div class="wk-flex wk-gap-2">
-                    <select class="wk-form-input" name="supplierId" style="flex: 1;">
-                      <option value="">—</option>
-                    </select>
-                    <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier">+</button>
-                  </div>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Остаток</label>
-                  <input class="wk-form-input" name="quantity" type="number" step="1" min="0" max="65535" value="0">
-                </div>
-                <div id="createError" class="wk-alert wk-alert-error hidden"></div>
-                <div id="createSpinner" class="wk-loading hidden">
-                  <span class="wk-loading-spinner"></span>
-                  Сохранение...
-                </div>
-                <div class="wk-flex wk-gap-2 wk-justify-between">
-                  <button type="button" id="cancel2" class="wk-btn wk-btn-secondary">Отмена</button>
-                  <button type="submit" class="wk-btn wk-btn-primary">Создать</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        `;
-
-        document.getElementById('cancel2').onclick = () => modalRoot.innerHTML = '';
-        
+        const allProducts = await authFetch('/api/products').then(r => r.json());
         const suppliers = await authFetch('/api/suppliers').then(r => r.json());
-        const select = document.querySelector('select[name="supplierId"]');
-        select.innerHTML = '<option value="">Выберите поставщика</option>';
-        suppliers.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = String(s.id);
-          opt.textContent = s.name;
-          select.appendChild(opt);
-        });
 
-        document.getElementById('createForm').onsubmit = async (e) => {
-          e.preventDefault();
-          const f = e.target;
-          const errorEl = document.getElementById('createError');
-          const spinnerEl = document.getElementById('createSpinner');
-          errorEl.textContent = '';
-          errorEl.classList.add('hidden');
-          spinnerEl.classList.remove('hidden');
-          
-          const submitBtn = f.querySelector('button[type="submit"]');
-          submitBtn.disabled = true;
-          
-          try {
-            const name = f.name.value.trim();
-            const unit = f.unit.value.trim();
-            const quantity = Number(f.quantity.value);
-            const supplierId = f.supplierId.value;
+        let itemCount = 1;
 
-            if (!name) {
-              throw new Error('Название товара не может быть пустым');
-            }
+        function renderForm() {
+          const itemsHtml = Array.from({ length: itemCount }, (_, i) => `
+            <div class="wk-card wk-mb-3" style="background: #f9fafb;">
+              <div class="wk-text-sm wk-font-semibold wk-mb-2">Товар ${i + 1}</div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название</label>
+                <input class="wk-form-input product-name" data-idx="${i}" required>
+              </div>
+              <div class="wk-flex wk-gap-2">
+                <div class="wk-form-group" style="flex: 1;">
+                  <label class="wk-form-label">Ед.изм</label>
+                  <input class="wk-form-input product-unit" data-idx="${i}" value="шт">
+                </div>
+                <div class="wk-form-group" style="flex: 1;">
+                  <label class="wk-form-label">Остаток</label>
+                  <input class="wk-form-input product-qty" data-idx="${i}" type="number" step="1" min="0" max="65535" value="0" required>
+                </div>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Поставщик (необязательно)</label>
+                <div class="wk-flex wk-gap-2">
+                  <select class="wk-form-input product-supplier" data-idx="${i}" style="flex: 1;">
+                    <option value="">—</option>
+                    ${suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                  </select>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier" style="min-width: 40px;">+</button>
+                </div>
+              </div>
+            </div>
+          `).join('');
 
-            if (!Number.isInteger(quantity) || quantity < 0) {
-              throw new Error('Остаток должен быть целым и неотрицательным числом');
-            }
+          modalRoot.innerHTML = `
+            <div class="modal">
+              <div class="modal-card">
+                <h3 class="wk-card-title wk-mb-4">Создать товары (${itemCount})</h3>
+                <form id="createForm">
+                  ${itemsHtml}
+                  
+                  <div id="createError" class="wk-alert wk-alert-error hidden"></div>
+                  <div id="createSpinner" class="wk-loading hidden">
+                    <span class="wk-loading-spinner"></span>
+                    Сохранение...
+                  </div>
+                  
+                  <div class="wk-flex wk-gap-2 wk-justify-between wk-flex-wrap">
+                    <button type="button" id="cancel2" class="wk-btn wk-btn-secondary">Отмена</button>
+                    <div class="wk-flex wk-gap-2">
+                      <button type="button" id="addMoreBtn" class="wk-btn wk-btn-secondary">+ Добавить ещё</button>
+                      <button type="submit" class="wk-btn wk-btn-primary">Создать</button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          `;
 
-            if (quantity > 65535) {
-              throw new Error('Максимальное значение остатка: 65535');
-            }
+          document.getElementById('cancel2').onclick = () => modalRoot.innerHTML = '';
+          document.getElementById('addMoreBtn').onclick = (e) => {
+            e.preventDefault();
+            itemCount++;
+            renderForm();
+          };
 
-            const payload = { 
-              name, 
-              unit, 
-              quantity,
-              supplierId: supplierId ? Number(supplierId) : undefined
-            };
-
-            const response = await authFetch('/api/products', { 
-              method: 'POST', 
-              headers: { 'Content-Type': 'application/json' }, 
-              body: JSON.stringify(payload) 
-            });
-
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: 'Неизвестная ошибка сервера' }));
-              throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
-            }
-
-            modalRoot.innerHTML = '';
-            load();
+          document.getElementById('createForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const errorEl = document.getElementById('createError');
+            const spinnerEl = document.getElementById('createSpinner');
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+            spinnerEl.classList.remove('hidden');
             
-          } catch (error) {
-            errorEl.textContent = error.message || 'Произошла неизвестная ошибка';
-            errorEl.classList.remove('hidden');
-          } finally {
-            spinnerEl.classList.add('hidden');
-            submitBtn.disabled = false;
-          }
-        };
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            
+            try {
+              const items = Array.from({ length: itemCount }, (_, i) => {
+                const nameInput = document.querySelector(`.product-name[data-idx="${i}"]`);
+                const unitInput = document.querySelector(`.product-unit[data-idx="${i}"]`);
+                const qtyInput = document.querySelector(`.product-qty[data-idx="${i}"]`);
+                const suppInput = document.querySelector(`.product-supplier[data-idx="${i}"]`);
+
+                const name = nameInput.value.trim();
+                const unit = unitInput.value.trim();
+                const quantity = Number(qtyInput.value);
+                const supplierId = suppInput.value;
+
+                if (!name) {
+                  throw new Error(`Товар ${i + 1}: название обязательно`);
+                }
+
+                if (!Number.isInteger(quantity) || quantity < 0) {
+                  throw new Error(`Товар ${i + 1}: остаток должен быть целым числом >= 0`);
+                }
+
+                if (quantity > 65535) {
+                  throw new Error(`Товар ${i + 1}: максимум 65535`);
+                }
+
+                return { name, unit, quantity, supplierId: supplierId ? Number(supplierId) : undefined };
+              });
+
+              for (const item of items) {
+                const response = await authFetch('/api/products', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(item)
+                });
+
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({ error: 'Ошибка' }));
+                  throw new Error(errorData.error || `Ошибка: ${response.status}`);
+                }
+              }
+
+              modalRoot.innerHTML = '';
+              await load();
+              notify(`${items.length} товаров созданы успешно`, 'success');
+              
+            } catch (error) {
+              errorEl.textContent = error.message || 'Произошла ошибка';
+              errorEl.classList.remove('hidden');
+            } finally {
+              spinnerEl.classList.add('hidden');
+              submitBtn.disabled = false;
+            }
+          };
+        }
+
+        renderForm();
       } catch (error) {
         console.error('Error opening create product modal:', error);
         notify('Ошибка при открытии формы создания товара', 'error');

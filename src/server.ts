@@ -1170,16 +1170,14 @@ app.post('/api/tools', async (req: Request, res: Response) => {
 
 app.patch('/api/tools/:id', async (req: Request, res: Response) => {
   const id = Number(req.params.id);
-  const { status } = req.body;
-
-  if (!status) {
-    return res.status(400).json({ error: 'Status is required' });
-  }
-
+  const { name } = req.body;
   try {
+    if (!name || String(name).trim() === '') {
+      return res.status(400).json({ error: 'Name is required' });
+    }
     const tool = await prisma.tool.update({
       where: { id },
-      data: { status }
+      data: { name: String(name).trim() }
     });
     res.json(tool);
   } catch (error) {
@@ -1230,19 +1228,7 @@ app.post('/api/workers/:workerId/assignTool/:toolId', async (req: Request, res: 
       return res.status(400).json({ error: 'Tool is already assigned to another worker' });
     }
 
-    const existingWorkerAssignment = await prisma.toolAssignment.findFirst({
-      where: {
-        workerId: workerId,
-        returnedAt: null
-      }
-    });
-
-    if (existingWorkerAssignment) {
-      await prisma.toolAssignment.update({
-        where: { id: existingWorkerAssignment.id },
-        data: { returnedAt: new Date() }
-      });
-    }
+    // NOTE: allow workers to have multiple active tools -> do not unassign previous assignments
 
     const assignment = await prisma.toolAssignment.create({
       data: {
