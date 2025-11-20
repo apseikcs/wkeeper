@@ -1176,14 +1176,23 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
           const pdfmakePrinter = await import('pdfmake/src/printer')
           PdfPrinter = pdfmakePrinter.default || pdfmakePrinter
         } catch (e1) {
+          console.warn('pdfmake/src/printer not available, trying pdfmake default export:', e1)
           try {
             const pm = await import('pdfmake')
             PdfPrinter = pm && (pm.Printer || pm.PdfPrinter || pm.default || pm)
           } catch (e2) {
-            console.error('pdfmake import error', e1, e2)
-            return res.status(500).json({ error: 'pdfmake module not found. Run: npm install pdfmake' })
+            console.error('pdfmake module not available:', e1, e2)
+            return res.status(501).json({ 
+              error: 'PDF export unavailable (pdfmake not installed). Install with: npm install pdfmake' 
+            })
           }
         }
+
+        if (!PdfPrinter || typeof PdfPrinter !== 'function') {
+          console.error('PdfPrinter not a constructor:', PdfPrinter)
+          return res.status(501).json({ error: 'PDF export unavailable (pdfmake misconfigured)' })
+        }
+
         const fontsObj: any = {
            NotoSans: {
              normal: fontsPaths.normal,
@@ -1252,10 +1261,16 @@ app.get('/api/reports/export', async (req: Request, res: Response) => {
           res.setHeader('Content-Length', String(result.length))
           return res.end(result)
         })
+        pdfDoc.on('error', (err: any) => {
+          console.error('PDF generation stream error:', err)
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'PDF generation failed' })
+          }
+        })
         pdfDoc.end()
         return
       } catch (err) {
-        console.error('PDF generation error (pdfmake)', err)
+        console.error('PDF generation error:', err)
         return res.status(500).json({ error: 'failed to generate PDF (see server logs for details)' })
       }
     }
