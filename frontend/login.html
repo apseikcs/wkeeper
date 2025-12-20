@@ -16,7 +16,7 @@
         <p class="brand-subtitle">Система управления складом</p>
       </div>
       
-      <form id="loginForm">
+      <form id="loginForm" onsubmit="return false">
         <div class="wk-card-header">
           <h2 class="wk-card-title">Вход в систему</h2>
           <p class="wk-card-subtitle">Введите ваши учетные данные</p>
@@ -68,6 +68,7 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
   <script>
     if (getToken()) {
       window.location.href = 'index.html';
@@ -83,46 +84,37 @@
 
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      
+      const form = e.target;
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       const errorMsg = document.getElementById('errorMsg');
-      const submitBtn = document.getElementById('submitBtn');
-      const spinner = submitBtn.querySelector('.wk-loading-spinner');
-      
+
       errorMsg.textContent = '';
       errorMsg.classList.add('hidden');
-      
+
       if (!username.trim() || !password.trim()) {
         errorMsg.textContent = 'Пожалуйста, заполните все поля';
         errorMsg.classList.remove('hidden');
         return;
       }
-      
-      submitBtn.disabled = true;
-      spinner.classList.remove('hidden');
-      
-      try {
-        const success = await login(username, password);
-        
-        if (success) {
-          submitBtn.textContent = 'Успешно!';
-          setTimeout(() => {
-            window.location.href = 'index.html';
-          }, 500);
-        } else {
-          errorMsg.textContent = 'Неверный логин или пароль';
+
+      await formUtils.disableDuring(form, async () => {
+        try {
+          const success = await login(username, password);
+          if (success) {
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.textContent = 'Успешно!';
+            setTimeout(() => { window.location.href = 'index.html'; }, 500);
+          } else {
+            errorMsg.textContent = 'Неверный логин или пароль';
+            errorMsg.classList.remove('hidden');
+          }
+        } catch (error) {
+          console.error('Login error:', error);
+          errorMsg.textContent = 'Ошибка входа. Пожалуйста, попробуйте позже.';
           errorMsg.classList.remove('hidden');
         }
-      } catch (error) {
-        console.error('Login error:', error);
-        errorMsg.textContent = 'Ошибка входа. Пожалуйста, попробуйте позже.';
-        errorMsg.classList.remove('hidden');
-      } finally {
-        submitBtn.disabled = false;
-        spinner.classList.add('hidden');
-        submitBtn.textContent = 'Войти в систему';
-      }
+      }, { text: 'Вход...' });
     });
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -145,3 +137,34 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

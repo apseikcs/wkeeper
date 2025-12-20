@@ -101,7 +101,7 @@
             <strong class="font-bold">Ошибка! </strong>
             <span>${escapeHtml(message)}</span>
           </div>
-          <button type="button" class="ml-4 text-red-700 hover:text-red-900" onclick="this.parentElement.parentElement.remove()">
+          <button type="button" class="ml-4 text-red-700 hover:text-red-900 delete-supplier-btn">
             <span class="text-xl">&times;</span>
           </button>
         </div>
@@ -127,6 +127,9 @@
       grid.innerHTML = '';
       
       activeWorkers.forEach(worker => {
+        // Filter only active assignments (not returned)
+        const activeAssignments = (worker.assignments || []).filter(a => !a.returnedAt && a.tool && !a.tool.deleted);
+        
         const card = document.createElement('div');
         card.className = 'wk-card worker-card flex flex-col gap-2';
         card.innerHTML = `
@@ -161,12 +164,15 @@
           </div>
           
           <div class="worker-card__tools">
-            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструменты (${(worker.assignments || []).length}):</div>
-            ${(worker.assignments && worker.assignments.length) ? `
+            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструменты (${activeAssignments.length}):</div>
+            ${activeAssignments.length > 0 ? `
               <ul class="wk-space-y-1 flex flex-col gap-2">
-                ${worker.assignments.map(assignment => `
+                ${activeAssignments.map(assignment => `
                   <li class="wk-flex wk-items-center wk-justify-between wk-gap-2 wk-text-sm wk-p-2 wk-bg-gray-50 wk-rounded">
-                    <span class="text-base">${escapeHtml(assignment.tool.name)}</span>
+                    <span class="text-base">
+                      ${escapeHtml(assignment.tool.name)}
+                      ${assignment.quantity > 1 ? ` <span class="text-gray-500">(${assignment.quantity})</span>` : ''}
+                    </span>
                     <button class="wk-btn wk-btn-danger wk-btn-xs unassign-tool-btn p-2" 
                             data-worker="${worker.id}" 
                             data-tool="${assignment.tool.id}"
@@ -211,7 +217,8 @@
       const modalRoot = document.getElementById('modalRoot');
       
       const allTools = await authFetch('/api/tools').then(r => r.json());
-      const available = (allTools || []).filter(t => !(t.assignments && t.assignments.length));
+      // Filter: not deleted and has available quantity
+      const available = (allTools || []).filter(t => !t.deleted && t.availableQuantity > 0);
 
       modalRoot.innerHTML = `
         <div class="modal">
@@ -219,13 +226,18 @@
             <h3 class="wk-card-title wk-mb-4">Выдать инструмент</h3>
             <p class="wk-text-muted wk-mb-4">Выберите инструмент для сотрудника: <strong>${escapeHtml(worker.fullName)}</strong></p>
             
-            <form id="assignForm">
+            <form id="assignForm" onsubmit="return false">
               <div class="wk-form-group">
                 <label class="wk-form-label">Инструмент</label>
                 <select class="wk-form-input" name="toolId" required>
                   <option value="">-- Выберите инструмент --</option>
-                  ${available.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+                  ${available.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.availableQuantity} доступно)</option>`).join('')}
                 </select>
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="quantity" min="1" value="1" required>
               </div>
               
               <div class="wk-flex wk-gap-2 wk-justify-between">
@@ -237,20 +249,30 @@
         </div>
       `;
       
-      document.getElementById('cancelAssign').onclick = () => modalRoot.innerHTML = '';
+      document.getElementById('cancelAssign').addEventListener('click', () => modalRoot.innerHTML = '');
       
-      document.getElementById('assignForm').onsubmit = async (e) => {
+      document.getElementById('assignForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const form = e.target;
         const toolId = Number(form.toolId.value);
+        const quantity = Number(form.quantity.value);
         
         if (!toolId) {
           showError('Выберите инструмент');
           return;
         }
         
+        if (!quantity || quantity < 1) {
+          showError('Укажите корректное количество');
+          return;
+        }
+        
         try {
-          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { method: 'POST' });
+          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity })
+          });
           
           if (!resp.ok) {
             const j = await resp.json().catch(() => ({}));
@@ -262,39 +284,59 @@
         } catch (err) {
           showError('Ошибка при выдаче инструмента: ' + (err.message || err));
         }
-      };
+      });
     }
 
     function openUnassignModal(workerId, toolId, workerName, toolName) {
       const modalRoot = document.getElementById('modalRoot');
       
+      // Find the assignment to get current quantity
+      const worker = workers.find(w => w.id === workerId);
+      const assignment = worker?.assignments?.find(a => a.tool.id === toolId && !a.returnedAt);
+      const currentQuantity = assignment?.quantity || 1;
+      
       modalRoot.innerHTML = `
         <div class="modal">
           <div class="modal-card">
-            <h3 class="wk-card-title wk-mb-4">Снять инструмент</h3>
+            <h3 class="wk-card-title wk-mb-4">Вернуть инструмент</h3>
             <p class="wk-text-muted wk-mb-4">
-              Вы уверены, что хотите снять инструмент <strong>${escapeHtml(toolName)}</strong> 
-              у сотрудника <strong>${escapeHtml(workerName)}</strong>?
+              Сотрудник <strong>${escapeHtml(workerName)}</strong> возвращает инструмент <strong>${escapeHtml(toolName)}</strong>
             </p>
             
-            <div class="wk-flex wk-gap-2 wk-justify-between">
-              <button id="cancelUnassign" class="wk-btn wk-btn-secondary">Отмена</button>
-              <button id="confirmUnassign" class="wk-btn wk-btn-danger">Снять</button>
-            </div>
+            <form id="unassignForm" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="quantity" min="1" max="${currentQuantity}" value="${currentQuantity}" required>
+                <small class="text-gray-500">Выдано: ${currentQuantity}</small>
+              </div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelUnassign" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-danger">Забрать</button>
+              </div>
+            </form>
           </div>
         </div>
       `;
       
-      document.getElementById('cancelUnassign').onclick = () => modalRoot.innerHTML = '';
-      document.getElementById('confirmUnassign').onclick = () => {
-        unassignTool(workerId, toolId);
+      document.getElementById('cancelUnassign').addEventListener('click', () => modalRoot.innerHTML = '');
+      document.getElementById('unassignForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const quantity = Number(form.quantity.value);
+        unassignTool(workerId, toolId, quantity);
         modalRoot.innerHTML = '';
-      };
+      });
     }
 
-    async function unassignTool(workerId, toolId) {
+    async function unassignTool(workerId, toolId, quantity = null) {
       try {
-        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { method: 'POST' });
+        const payload = quantity ? { quantity } : {};
+        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
         
         if (!resp.ok) {
           const j = await resp.json().catch(() => ({}));
@@ -303,7 +345,7 @@
         
         await load();
       } catch (err) {
-        showError('Ошибка при снятии инструмента: ' + (err.message || err));
+        showError('Ошибка при возврате инструмента: ' + (err.message || err));
       }
     }
 
@@ -320,8 +362,8 @@
             </p>
             
             <div class="wk-flex wk-gap-2 wk-justify-between">
-              <button id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
-              <button id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
+              <button type="button" id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button type="button" id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
             </div>
           </div>
         </div>
@@ -356,7 +398,7 @@
           <div class="modal-card">
             <h3 class="wk-card-title wk-mb-4">Добавить сотрудника</h3>
             
-            <form id="addWorkerForm">
+            <form id="addWorkerForm" onsubmit="return false">
               <div class="wk-form-group">
                 <label class="wk-form-label">ФИО *</label>
                 <input class="wk-form-input" name="fullName" required placeholder="Иванов Иван Иванович">
@@ -393,7 +435,7 @@
         <div class="modal">
           <div class="modal-card">
             <h3 class="wk-card-title wk-mb-4">Редактировать сотрудника</h3>
-            <form id="editWorkerForm">
+            <form id="editWorkerForm" onsubmit="return false">
               <div class="wk-form-group">
                 <label class="wk-form-label">ФИО *</label>
                 <input class="wk-form-input" name="fullName" required value="${escapeHtml(worker.fullName)}">
@@ -414,8 +456,8 @@
           </div>
         </div>
       `;
-      document.getElementById('cancelEditWorker').onclick = () => modalRoot.innerHTML = '';
-      document.getElementById('editWorkerForm').onsubmit = async (e) => {
+      document.getElementById('cancelEditWorker').addEventListener('click', () => modalRoot.innerHTML = '');
+      document.getElementById('editWorkerForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const f = e.target;
         const payload = {
@@ -438,7 +480,7 @@
         } catch (err) {
           showError('Ошибка при сохранении: ' + (err.message || err));
         }
-      };
+      });
     }
 
     async function handleAddWorker(e) {

@@ -18,6 +18,8 @@ model product {
   updatedAt       DateTime          @updatedAt
   transactions    transaction[]
   transactionItem TransactionItem[]
+
+  @@index([nameNormalized])
 }
 
 model worker {
@@ -58,48 +60,59 @@ model TransactionItem {
   transactionId Int
   product       product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
   productId     Int?
-  productName   String 
-  productSku    String? 
-  delta         Int 
+  productName   String
+  productSku    String?
+  delta         Int
 
   @@index([transactionId])
   @@index([productId])
 }
 
 model transaction {
-  id              Int               @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   type            String
-  date            DateTime          @default(now())
-  supplierName    String? // LEGACY / display снимок
-  destinationName String? // LEGACY / display снимок
-  supplier        supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  supplierId      Int?
-  destination     location?         @relation(fields: [destinationId], references: [id], onDelete: SetNull)
-  destinationId   Int?
-  worker          worker?           @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  workerId        Int?
-  note            String?
-  items           TransactionItem[]
-  createdAt       DateTime          @default(now())
-  product         product?          @relation(fields: [productId], references: [id])
-  productId       Int?
+  date            DateTime @default(now())
+  supplierName    String? // LEGACY / display snapshot
+  destinationName String? // LEGACY / display snapshot
+
+  supplier      supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId    Int?
+  destination   location? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  destinationId Int?
+  worker        worker?   @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  workerId      Int?
+
+  author   User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId Int?
+
+  note      String?
+  items     TransactionItem[]
+  createdAt DateTime          @default(now())
+  product   product?          @relation(fields: [productId], references: [id])
+  productId Int?
+
+  @@index([date])
+  @@index([supplierId])
 }
 
 model tool {
-  id          Int              @id @default(autoincrement())
-  name        String
-  status      String           @default("available")
-  deleted     Boolean          @default(false)
-  assignments ToolAssignment[]
-  createdAt   DateTime         @default(now())
+  id                  Int              @id @default(autoincrement())
+  name                String
+  totalQuantity       Int              @default(1)
+  availableQuantity   Int              @default(1)
+  deleted             Boolean          @default(false)
+  assignments         ToolAssignment[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 }
 
 model ToolAssignment {
   id         Int       @id @default(autoincrement())
-  tool       tool      @relation(fields: [toolId], references: [id])
+  tool       tool      @relation(fields: [toolId], references: [id], onDelete: Cascade)
   toolId     Int
-  worker     worker    @relation(fields: [workerId], references: [id])
+  worker     worker    @relation(fields: [workerId], references: [id], onDelete: Cascade)
   workerId   Int
+  quantity   Int       @default(1)
   assignedAt DateTime  @default(now())
   returnedAt DateTime?
 
@@ -108,8 +121,11 @@ model ToolAssignment {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
+  id           Int           @id @default(autoincrement())
+  username     String        @unique
   passwordHash String
-  createdAt    DateTime @default(now())
+  role         String        @default("worker")
+  permissions  Json          @default("{}")
+  createdAt    DateTime      @default(now())
+  transaction  transaction[]
 }

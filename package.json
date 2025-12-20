@@ -1,6 +1,6 @@
 {
   "name": "warehouse-keeper",
-  "version": "0.9.0",
+  "version": "0.9.6",
   "private": true,
   "scripts": {
     "dev": "prisma generate && ts-node-dev src/server.ts",
@@ -19,7 +19,7 @@
     "handlebars": "^4.7.8",
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.17.2",
-    "puppeteer": "^24.25.0"
+    "pdfmake": "^0.2.20"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

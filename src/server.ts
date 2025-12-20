@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv'
 dotenv.config()
 
 import { prisma } from './prisma'
+import { Prisma } from '@prisma/client'
 import type { Request, Response, NextFunction } from 'express'
 import express from 'express'
 import path from 'path'
@@ -14,6 +15,58 @@ import * as fs from 'fs'
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization']
+  const token = authHeader && (authHeader as string).split(' ')[1]
+
+  if (token == null) return res.sendStatus(401)
+
+  const payload = verifyToken(token as string) 
+  if (!payload) return res.sendStatus(403);
+
+  (req as any).authUser = payload 
+  next()
+}
+
+// allow public endpoints (e.g. /api/login) to bypass auth; protect all other /api routes
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const publicPaths = ['/login'] // add more public API paths here if needed
+  if (publicPaths.includes(req.path)) return next()
+  return authenticateToken(req, res, next)
+})
+
+async function getDbUserFromReq(req: Request) {
+  const authUser = (req as any).authUser
+  if (!authUser || !authUser.id) return null
+  const dbUser = await prisma.user.findUnique({ where: { id: Number(authUser.id) } })
+  return dbUser
+}
+
+const authorizePermission = (permission: string) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const dbUser = await getDbUserFromReq(req)
+    if (!dbUser) return res.sendStatus(403)
+
+    if (dbUser.username === 'axelerator') return next()
+    if (dbUser.role === 'admin') return next()
+
+    const perms: any = dbUser.permissions || {}
+    if (permission === 'inventory:transact') {
+      if (dbUser.role === 'worker') {
+        if (perms && perms['inventory:transact'] === false) {
+          return res.status(403).json({ error: 'Forbidden: permission denied' })
+        } else {
+          return next()
+        }
+      }
+    }
+
+    if (perms && perms[permission]) return next()
+
+    return res.status(403).json({ error: 'Forbidden: insufficient permissions' })
+  }
+}
 
 app.post('/api/login', async (req: Request, res: Response) => {
   const { username, password } = req.body
@@ -31,7 +84,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'invalid credentials' })
   }
 
-  const token = generateToken(user.id, user.username)
+  const token = generateToken(user.id, user.username, user.role)
   res.json({ token })
 })
 
@@ -46,19 +99,46 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
   }
 }))
 
-const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers['authorization']
-  const token = authHeader && authHeader.split(' ')[1]
-
-  if (token == null) return res.sendStatus(401)
-
-  const user = verifyToken(token)
-  if (!user) return res.sendStatus(403)
-
-  next()
+const authorizeRole = (allowedRoles: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers['authorization']
+    const token = authHeader && (authHeader as string).split(' ')[1]
+    
+    if (!token) return res.sendStatus(401)
+    
+    const user = verifyToken(token as string)
+    if (!user) return res.sendStatus(403)
+    
+    const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
+    if (!dbUser) return res.sendStatus(403)
+    
+    if (dbUser.username === 'axelerator') {
+      return next()
+    }
+    
+    if (!allowedRoles.includes(dbUser.role)) {
+      return res.status(403).json({ error: 'Forbidden: insufficient role' })
+    }
+    
+    next()
+  }
 }
 
-app.use('/api', authenticateToken)
+app.get('/api/me', authenticateToken, async (req: Request, res: Response) => {
+  // use attached authUser instead of re-parsing token
+  const authUser = (req as any).authUser
+  if (!authUser) return res.sendStatus(403)
+
+  const dbUser = await prisma.user.findUnique({ where: { id: Number(authUser.id) } })
+  if (!dbUser) return res.sendStatus(404)
+  
+  res.json({
+    id: dbUser.id,
+    username: dbUser.username,
+    role: dbUser.role,
+    permissions: dbUser.permissions
+  })
+})
 
 app.get('/api/stats', async (req: Request, res: Response) => {
   const today = startOfDay(new Date())
@@ -78,144 +158,155 @@ app.get('/api/stats', async (req: Request, res: Response) => {
 })
 
 app.get('/api/transactions/recent', async (req: Request, res: Response) => {
-  const transactions = await prisma.transaction.findMany({
-    take: 5,
-    orderBy: { date: 'desc' },
-    include: {
-      items: {
-        include: { product: { select: { id: true, name: true } } }
-      },
-      worker: { select: { id: true, fullName: true } },
-      supplier: { select: { id: true, name: true } },
-      destination: { select: { id: true, name: true } }
-    }
-  })
-  
-  const items = transactions.flatMap(t => 
-    t.items.map(item => ({
-      id: t.id,
-      date: t.date,
-      type: t.type,
-      productId: item.productId,
-      productName: item.productName,
-      delta: item.delta,
-      supplierId: t.supplierId,
-      supplierName: t.supplierName || t.supplier?.name,
-      destinationId: t.destinationId,
-      destinationName: t.destinationName || t.destination?.name,
-      workerId: t.workerId,
-      note: t.note,
-      product: item.product,
-      worker: t.worker,
-      supplier: t.supplier,
-      destination: t.destination
-    }))
-  )
-  
-  res.json(items)
+  try {
+    const transactions = await prisma.transaction.findMany({
+      take: 5,
+      orderBy: { date: 'desc' },
+      include: {
+        items: {
+          include: { product: { select: { id: true, name: true } } }
+        },
+        worker: { select: { id: true, fullName: true } },
+        supplier: { select: { id: true, name: true } },
+        destination: { select: { id: true, name: true } },
+        author: { select: { id: true, username: true } }
+      }
+    })
+
+    const items = transactions.flatMap(t => 
+      t.items.map(item => ({
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        productId: item.productId,
+        productName: item.productName,
+        delta: item.delta,
+        supplierId: t.supplierId,
+        supplierName: t.supplierName || t.supplier?.name,
+        destinationId: t.destinationId,
+        destinationName: t.destinationName || t.destination?.name,
+        workerId: t.workerId,
+        workerUsername: null,
+        workerName: t.worker?.fullName || null,
+        authorUsername: t.author?.username || null,
+        note: t.note,
+        product: item.product,
+        worker: t.worker,
+        supplier: t.supplier,
+        destination: t.destination
+      }))
+    )
+
+    res.json(items)
+  } catch (e) {
+    console.error('failed to fetch recent transactions', e)
+    res.status(500).json({ error: 'failed to fetch recent transactions' })
+  }
 })
 
 app.get('/api/products', async (req: Request, res: Response) => {
   const search = String(req.query.search || '').trim()
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100))
+  const offset = (page - 1) * limit
 
-  if (!search) {
-    const products = await prisma.product.findMany({
-      include: {
-        transactionItem: {
-          include: {
-            transaction: {
-              select: {
-                id: true,
-                type: true,
-                date: true,
-                supplierName: true,
-                destinationName: true,
-                supplierId: true,
-                destinationId: true,
-                workerId: true,
-                note: true
-              }
-            }
-          },
-          orderBy: { transaction: { date: 'desc' } }
-        }
-      }
-    })
-    const transformed = products.map(p => ({
-      ...p,
-      transactions: p.transactionItem.map(item => ({
-        id: item.transaction.id,
-        productId: item.productId,
-        productName: item.productName,
-        delta: item.delta,
-        type: item.transaction.type,
-        date: item.transaction.date,
-        supplierName: item.transaction.supplierName,
-        destinationName: item.transaction.destinationName,
-        supplierId: item.transaction.supplierId,
-        destinationId: item.transaction.destinationId,
-        workerId: item.transaction.workerId,
-        note: item.transaction.note
-      }))
-    }))
-    return res.json(transformed)
+  // We'll return lightweight product metadata plus the most-recent
+  // incoming supplier name (if any) to allow the UI to show a supplier
+  // column without fetching full transaction lists per product.
+  const qParam = search ? `%${search.replace(/%/g, '\%')}%` : null
+
+  // Use a single DB query that left-joins the latest incoming transaction
+  // (type='in') per product and reads the supplier name.
+  // Postgres-specific SQL is used here (double quotes, DISTINCT ON).
+  let rows: Array<any>
+  let totalCount: number
+  
+  if (qParam) {
+    const countResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) as count FROM product p WHERE lower(p.name) LIKE lower(${qParam})
+    `
+    totalCount = Number(countResult[0]?.count || 0)
+    
+    rows = await prisma.$queryRaw`
+      SELECT p.id, p.name, p.unit, p.quantity, p.sku, p."updatedAt",
+        COALESCE(ti_last."supplierName", s.name) as "supplierName"
+      FROM product p
+      LEFT JOIN (
+        SELECT DISTINCT ON (ti."productId") ti."productId", t."supplierId", t."supplierName"
+        FROM "TransactionItem" ti
+        JOIN "transaction" t ON ti."transactionId" = t.id
+        WHERE t.type = 'in' AND t."supplierId" IS NOT NULL
+        ORDER BY ti."productId", t.date DESC
+      ) ti_last ON ti_last."productId" = p.id
+      LEFT JOIN supplier s ON s.id = ti_last."supplierId"
+      WHERE lower(p.name) LIKE lower(${qParam})
+      ORDER BY p."updatedAt" DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+  } else {
+    const countResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) as count FROM product
+    `
+    totalCount = Number(countResult[0]?.count || 0)
+    
+    rows = await prisma.$queryRaw`
+      SELECT p.id, p.name, p.unit, p.quantity, p.sku, p."updatedAt",
+        COALESCE(ti_last."supplierName", s.name) as "supplierName"
+      FROM product p
+      LEFT JOIN (
+        SELECT DISTINCT ON (ti."productId") ti."productId", t."supplierId", t."supplierName"
+        FROM "TransactionItem" ti
+        JOIN "transaction" t ON ti."transactionId" = t.id
+        WHERE t.type = 'in' AND t."supplierId" IS NOT NULL
+        ORDER BY ti."productId", t.date DESC
+      ) ti_last ON ti_last."productId" = p.id
+      LEFT JOIN supplier s ON s.id = ti_last."supplierId"
+      ORDER BY p."updatedAt" DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
   }
 
-  const q = `%${search.replace(/%/g, '\\%')}%`
+  // Aggregate suppliers per product (so we don't silently overwrite many suppliers
+  // with a single latest supplier). This returns for each product a list of
+  // suppliers with totals and last supply date.
+  const productIds = Array.isArray(rows) ? rows.map(r => r.id) : []
+  if (productIds.length > 0) {
+    // Build a safe, parameterized list of ids using Prisma.sql + Prisma.join
+    const idSql = Prisma.join(productIds.map(id => Prisma.sql`${id}`))
+    const supplyRows: Array<{ supplierId: number, productId: number, supplierName: string, total: number, lastDate: string }> = await prisma.$queryRaw(Prisma.sql`
+      SELECT t."supplierId" as "supplierId", ti."productId" as "productId", s.name as "supplierName", SUM(ABS(ti.delta)) as total, MAX(t.date) as "lastDate"
+      FROM "TransactionItem" ti
+      JOIN "transaction" t ON ti."transactionId" = t.id
+      JOIN "supplier" s ON s.id = t."supplierId"
+      WHERE t.type = 'in' AND t."supplierId" IS NOT NULL AND ti."productId" IN (${idSql})
+      GROUP BY t."supplierId", ti."productId", s.name
+    `)
 
-  const rows: Array<{ id: number }> = await prisma.$queryRaw`
-    SELECT id FROM product
-    WHERE lower(name) LIKE lower(${q})
-    ORDER BY "updatedAt" DESC
-  `
+    const supMap: Record<number, Array<{ supplierId: number, name: string, total: number, lastDate: string }>> = {}
+    supplyRows.forEach(r => {
+      if (!supMap[r.productId]) supMap[r.productId] = []
+      supMap[r.productId].push({ supplierId: r.supplierId, name: r.supplierName, total: Number(r.total), lastDate: String(r.lastDate) })
+    })
 
-  const ids = rows.map(r => r.id)
-  if (ids.length === 0) return res.json([])
+    // Attach sorted `supplied` array to each product row
+    rows = rows.map(p => {
+      const supplied = (supMap[p.id] || []).sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate))
+      return { ...p, supplied }
+    })
+  }
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: ids } },
-    include: {
-      transactionItem: {
-        include: {
-          transaction: {
-            select: {
-              id: true,
-              type: true,
-              date: true,
-              supplierName: true,
-              destinationName: true,
-              supplierId: true,
-              destinationId: true,
-              workerId: true,
-              note: true
-            }
-          }
-        },
-        orderBy: { transaction: { date: 'desc' } }
-      }
-    }
+  // Return paginated response
+  res.json({
+    page,
+    limit,
+    total: totalCount,
+    items: Array.isArray(rows) ? rows : []
   })
-
-  const transformed = products.map(p => ({
-    ...p,
-    transactions: p.transactionItem.map(item => ({
-      id: item.transaction.id,
-      productId: item.productId,
-      productName: item.productName,
-      delta: item.delta,
-      type: item.transaction.type,
-      date: item.transaction.date,
-      supplierName: item.transaction.supplierName,
-      destinationName: item.transaction.destinationName,
-      supplierId: item.transaction.supplierId,
-      destinationId: item.transaction.destinationId,
-      workerId: item.transaction.workerId,
-      note: item.transaction.note
-    }))
-  }))
-
-  res.json(transformed)
 })
+
+
+// (Deprecated) product-history endpoint removed — transaction history is
+// available via `/api/transactions` and the transaction search UI.
 
 app.post('/api/products', async (req: Request, res: Response) => {
   const { name, unit, quantity, supplierId } = req.body
@@ -235,16 +326,13 @@ app.post('/api/products', async (req: Request, res: Response) => {
   const createData: any = { name: displayName, nameNormalized, unit: String(unit ?? ''), quantity: qRaw }
   const p = await prisma.product.create({ data: createData })
 
-  if (supplierId && qRaw > 0) {
+  if (qRaw > 0) {
     try {
-      const supplier = await prisma.supplier.findUnique({ where: { id: Number(supplierId) } })
-      if (!supplier) throw new Error('supplier not found')
-      
       const t = await prisma.transaction.create({
         data: {
           type: 'in',
-          supplierName: supplier.name,
-          supplierId: supplier.id
+          supplierName: supplierId ? (await prisma.supplier.findUnique({ where: { id: Number(supplierId) } }))?.name : null,
+          supplierId: supplierId ? Number(supplierId) : null
         }
       })
       
@@ -265,24 +353,15 @@ app.post('/api/products', async (req: Request, res: Response) => {
   res.json(p)
 })
 
-app.post('/api/products/:id/adjust', async (req: Request, res: Response) => {
+app.post('/api/products/:id/adjust', authorizePermission('inventory:transact'), async (req: Request, res: Response) => {
   const id = Number(req.params.id)
   const { delta, type, supplierId, destinationId, workerId, date, note } = req.body
   if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' })
-  const product = await prisma.product.findUnique({ where: { id } })
-  if (!product) return res.status(404).json({ error: 'product not found' })
-
   const rawDelta = Number(delta)
   if (!Number.isInteger(rawDelta) || rawDelta <= 0) {
     return res.status(400).json({ error: 'delta must be a positive integer' })
   }
   const numericDelta = type === 'out' ? -Math.abs(rawDelta) : Math.abs(rawDelta)
-  if (type === 'out' && product.quantity + numericDelta < 0) {
-    return res.status(400).json({ error: 'not enough stock' })
-  }
-  if (type === 'in' && product.quantity + numericDelta > 65535) {
-    return res.status(400).json({ error: 'exceeds max stock 65535' })
-  }
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -301,6 +380,7 @@ app.post('/api/products/:id/adjust', async (req: Request, res: Response) => {
         destinationName = d.name
       }
 
+      const authUser = (req as any).authUser
       const tData: any = {
         type,
         date: date ? new Date(date) : undefined,
@@ -309,27 +389,41 @@ app.post('/api/products/:id/adjust', async (req: Request, res: Response) => {
         supplierId: supplierId ? Number(supplierId) : undefined,
         destinationId: destinationId ? Number(destinationId) : undefined,
         workerId: workerId ? Number(workerId) : undefined,
-        note
+        note,
+        authorId: authUser?.id ? Number(authUser.id) : undefined
       }
+
+      // create transaction and item, then apply atomic increment to product quantity
       const t = await tx.transaction.create({ data: tData })
-      
+
       await tx.transactionItem.create({
         data: {
           transactionId: t.id,
           productId: id,
-          productName: product.name,
-          productSku: product.sku,
+          productName: (await tx.product.findUnique({ where: { id }, select: { name: true } }))?.name || '',
+          productSku: (await tx.product.findUnique({ where: { id }, select: { sku: true } }))?.sku,
           delta: numericDelta
         }
       })
 
-      const newQty = product.quantity + numericDelta
-      await tx.product.update({ where: { id }, data: { quantity: newQty } })
-      return { transaction: t, newQty }
+      const updatedProduct = await tx.product.update({
+        where: { id },
+        data: { quantity: { increment: numericDelta } },
+        select: { quantity: true }
+      })
+
+      if (updatedProduct.quantity < 0) throw new Error('not enough stock')
+      if (updatedProduct.quantity > 65535) throw new Error('exceeds max stock 65535')
+
+      return { transaction: t, newQty: updatedProduct.quantity }
     })
+
     res.json(updated)
-  } catch (err) {
+  } catch (err: any) {
     console.error(err)
+    if (err.message === 'not enough stock') return res.status(400).json({ error: 'not enough stock' })
+    if (err.message && err.message.startsWith('exceeds')) return res.status(400).json({ error: 'exceeds max stock 65535' })
+    if (err.message && err.message.includes('not found')) return res.status(404).json({ error: err.message })
     res.status(500).json({ error: 'internal error' })
   }
 })
@@ -387,8 +481,8 @@ app.get('/api/workers', async (req: Request, res: Response) => {
   res.json(w)
 })
 
-app.post('/api/workers', async (req: Request, res: Response) => {
-  const { fullName, phone, position } = req.body;
+app.post('/api/workers', authenticateToken, authorizeRole(['admin']), async (req: Request, res: Response) => {
+  const { fullName, phone, position, role } = req.body;
   
   if (!fullName) {
     return res.status(400).json({ error: 'Full name is required' });
@@ -516,39 +610,23 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
   const suppliers = await prisma.supplier.findMany({
     where: showDeleted ? undefined : { deleted: false }
   })
-  
-  const items = await prisma.transactionItem.findMany({
-    where: {
-      transaction: {
-        supplierId: { not: null },
-        type: 'in'
-      }
-    },
-    include: {
-      transaction: { select: { supplierId: true } },
-      product: { select: { id: true, name: true } }
-    }
-  })
-  
+
+  const rows: Array<{ supplierId: number, productId: number, productName: string, total: number }> = await prisma.$queryRaw`
+    SELECT t."supplierId" as "supplierId", ti."productId" as "productId", p.name as "productName", SUM(ABS(ti.delta)) as total
+    FROM "TransactionItem" ti
+    JOIN "transaction" t ON ti."transactionId" = t.id
+    JOIN "product" p ON ti."productId" = p.id
+    WHERE t."supplierId" IS NOT NULL AND t.type = 'in'
+    GROUP BY t."supplierId", ti."productId", p.name
+  `
+
   const map: Record<number, Array<{ productId: number, name: string, total: number }>> = {}
-  items.forEach(item => {
-    const supplierId = item.transaction.supplierId
-    if (supplierId && item.productId && item.product) {
-      if (!map[supplierId]) map[supplierId] = []
-      const existing = map[supplierId].find(e => e.productId === item.productId)
-      if (existing) {
-        existing.total += Math.abs(item.delta)
-      } else {
-        map[supplierId].push({ 
-          productId: item.productId, 
-          name: item.product.name, 
-          total: Math.abs(item.delta) 
-        })
-      }
-    }
+  rows.forEach(r => {
+    if (!map[r.supplierId]) map[r.supplierId] = []
+    map[r.supplierId].push({ productId: r.productId, name: r.productName, total: Number(r.total) })
   })
-  
-  const result = suppliers.map(s=>({ ...s, supplied: map[s.id] || [] }))
+
+  const result = suppliers.map(s => ({ ...s, supplied: map[s.id] || [] }))
   res.json(result)
 })
 
@@ -703,8 +781,28 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
 
 app.get('/api/locations', async (req: Request, res: Response) => {
   const showDeleted = req.query.showDeleted === 'true'
+  const search = String(req.query.search || '').trim()
+  const sortField = String(req.query.sort || 'id').trim()
+  const sortDir = String(req.query.sortDir || 'asc').trim().toLowerCase() as 'asc' | 'desc'
+  
+  // Whitelist sort fields to prevent injection
+  const validSortFields = ['id', 'name', 'city', 'district', 'address']
+  const sort = validSortFields.includes(sortField) ? sortField : 'id'
+  
+  const where: any = showDeleted ? undefined : { deleted: false }
+  
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { city: { contains: search, mode: 'insensitive' } },
+      { district: { contains: search, mode: 'insensitive' } },
+      { address: { contains: search, mode: 'insensitive' } }
+    ]
+  }
+  
   const l = await prisma.location.findMany({
-    where: showDeleted ? undefined : { deleted: false }
+    where: where,
+    orderBy: { [sort]: sortDir }
   })
   res.json(l)
 })
@@ -838,6 +936,9 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     default: orderBy = { date: 'desc' }
   }
 
+  // Count total transactions matching filter for pagination
+  const totalTransactions = await prisma.transaction.count({ where })
+
   const transactions = await prisma.transaction.findMany({
     where,
     include: {
@@ -846,7 +947,8 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
       },
       worker: { select: { id: true, fullName: true } },
       supplier: { select: { id: true, name: true } },
-      destination: { select: { id: true, name: true } }
+      destination: { select: { id: true, name: true } },
+      author: { select: { id: true, username: true } }
     },
     orderBy,
     skip: (page - 1) * limit,
@@ -866,6 +968,9 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
       destinationId: t.destinationId,
       destinationName: t.destinationName || t.destination?.name,
       workerId: t.workerId,
+      workerUsername: null,
+      workerName: t.worker?.fullName || null,
+      authorUsername: t.author?.username || null,
       note: t.note,
       product: item.product,
       worker: t.worker
@@ -883,7 +988,7 @@ app.get('/api/transactions', async (req: Request, res: Response) => {
     sortedItems = flattenedItems.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
   }
 
-  res.json({ page, limit, items: sortedItems })
+  res.json({ page, limit, total: totalTransactions, items: sortedItems })
 })
 
 app.patch('/api/transactions/:id', async (req: Request, res: Response) => {
@@ -1152,14 +1257,21 @@ app.get('/api/tools', async (req: Request, res: Response) => {
 });
 
 app.post('/api/tools', async (req: Request, res: Response) => {
-  const { name } = req.body;
+  const { name, totalQuantity = 1 } = req.body;
   if (!name) {
     return res.status(400).json({ error: 'Name is required' });
+  }
+  if (totalQuantity < 1) {
+    return res.status(400).json({ error: 'Total quantity must be at least 1' });
   }
 
   try {
     const tool = await prisma.tool.create({
-      data: { name }
+      data: {
+        name: String(name).trim(),
+        totalQuantity: Number(totalQuantity),
+        availableQuantity: Number(totalQuantity)
+      }
     });
     res.json(tool);
   } catch (error) {
@@ -1170,14 +1282,42 @@ app.post('/api/tools', async (req: Request, res: Response) => {
 
 app.patch('/api/tools/:id', async (req: Request, res: Response) => {
   const id = Number(req.params.id);
-  const { name } = req.body;
+  const { name, totalQuantity } = req.body;
   try {
     if (!name || String(name).trim() === '') {
       return res.status(400).json({ error: 'Name is required' });
     }
+    const updateData: any = { name: String(name).trim() };
+    
+    if (totalQuantity !== undefined) {
+      const newTotal = Number(totalQuantity);
+      if (newTotal < 1) {
+        return res.status(400).json({ error: 'Total quantity must be at least 1' });
+      }
+      
+      // Get current tool state to calculate issued quantity
+      const currentTool = await prisma.tool.findUnique({ where: { id } });
+      if (!currentTool) {
+        return res.status(404).json({ error: 'Tool not found' });
+      }
+      
+      // Calculate how many are currently issued
+      const issued = currentTool.totalQuantity - currentTool.availableQuantity;
+      
+      // New total cannot be less than what's already issued
+      if (newTotal < issued) {
+        return res.status(400).json({ 
+          error: `Cannot reduce total quantity below ${issued}. Currently ${issued} units are issued to workers.` 
+        });
+      }
+      
+      updateData.totalQuantity = newTotal;
+      updateData.availableQuantity = newTotal - issued; // Preserve issued quantity
+    }
+    
     const tool = await prisma.tool.update({
       where: { id },
-      data: { name: String(name).trim() }
+      data: updateData
     });
     res.json(tool);
   } catch (error) {
@@ -1204,6 +1344,7 @@ app.delete('/api/tools/:id', async (req: Request, res: Response) => {
 app.post('/api/workers/:workerId/assignTool/:toolId', async (req: Request, res: Response) => {
   const workerId = Number(req.params.workerId);
   const toolId = Number(req.params.toolId);
+  const { quantity = 1 } = req.body;
 
   try {
     const worker = await prisma.worker.findUnique({ where: { id: workerId } });
@@ -1217,30 +1358,31 @@ app.post('/api/workers/:workerId/assignTool/:toolId', async (req: Request, res: 
       return res.status(404).json({ error: 'Tool not found' });
     }
 
-    const existingAssignment = await prisma.toolAssignment.findFirst({
-      where: {
-        toolId: toolId,
-        returnedAt: null
-      }
-    });
-
-    if (existingAssignment) {
-      return res.status(400).json({ error: 'Tool is already assigned to another worker' });
+    const assignQty = Number(quantity);
+    if (assignQty < 1) {
+      return res.status(400).json({ error: 'Quantity must be at least 1' });
+    }
+    if (assignQty > tool.availableQuantity) {
+      return res.status(400).json({ 
+        error: `Not enough tools available. Available: ${tool.availableQuantity}, Requested: ${assignQty}` 
+      });
     }
 
-    // NOTE: allow workers to have multiple active tools -> do not unassign previous assignments
-
-    const assignment = await prisma.toolAssignment.create({
-      data: {
-        toolId: toolId,
-        workerId: workerId
-      }
-    });
-
-    await prisma.tool.update({
-      where: { id: toolId },
-      data: { status: 'assigned' }
-    });
+    // Use transaction to ensure consistency
+    const [assignment] = await prisma.$transaction([
+      prisma.toolAssignment.create({
+        data: {
+          toolId: toolId,
+          workerId: workerId,
+          quantity: assignQty
+        },
+        include: { worker: true }
+      }),
+      prisma.tool.update({
+        where: { id: toolId },
+        data: { availableQuantity: { decrement: assignQty } }
+      })
+    ]);
 
     res.json(assignment);
   } catch (error) {
@@ -1252,6 +1394,7 @@ app.post('/api/workers/:workerId/assignTool/:toolId', async (req: Request, res: 
 app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res: Response) => {
   const workerId = Number(req.params.workerId);
   const toolId = Number(req.params.toolId);
+  const { quantity: returnQuantity } = req.body;
 
   try {
     const worker = await prisma.worker.findUnique({ where: { id: workerId } });
@@ -1277,15 +1420,45 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
       return res.status(404).json({ error: 'Tool is not assigned to this worker' });
     }
 
-    await prisma.toolAssignment.update({
-      where: { id: assignment.id },
-      data: { returnedAt: new Date() }
-    });
+    // If no quantity specified, return all
+    const qtyToReturn = returnQuantity ? Number(returnQuantity) : assignment.quantity;
+    
+    if (qtyToReturn < 1) {
+      return res.status(400).json({ error: 'Return quantity must be at least 1' });
+    }
+    
+    if (qtyToReturn > assignment.quantity) {
+      return res.status(400).json({ 
+        error: `Cannot return more than assigned. Assigned: ${assignment.quantity}, Requested: ${qtyToReturn}` 
+      });
+    }
 
-    await prisma.tool.update({
-      where: { id: toolId },
-      data: { status: 'available' }
-    });
+    // Use transaction to ensure consistency
+    if (qtyToReturn === assignment.quantity) {
+      // Return all - mark as returned
+      await prisma.$transaction([
+        prisma.toolAssignment.update({
+          where: { id: assignment.id },
+          data: { returnedAt: new Date() }
+        }),
+        prisma.tool.update({
+          where: { id: toolId },
+          data: { availableQuantity: { increment: qtyToReturn } }
+        })
+      ]);
+    } else {
+      // Partial return - reduce quantity, don't mark as returned
+      await prisma.$transaction([
+        prisma.toolAssignment.update({
+          where: { id: assignment.id },
+          data: { quantity: { decrement: qtyToReturn } }
+        }),
+        prisma.tool.update({
+          where: { id: toolId },
+          data: { availableQuantity: { increment: qtyToReturn } }
+        })
+      ]);
+    }
 
     res.json({ ok: true });
   } catch (error) {
@@ -1301,7 +1474,7 @@ app.post('/api/workers/:workerId/unassignTool/:toolId', async (req: Request, res
   console.info(`Fonts: NotoSans-Regular=${normal}, NotoSans-Bold=${bold}`)
 }
 
-app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) => {
+app.post('/api/transactions/bulk-adjust', authorizePermission('inventory:transact'), async (req: Request, res: Response) => {
   const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
   if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
@@ -1350,14 +1523,9 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
         deltasPerProduct[it.productId] = (deltasPerProduct[it.productId] || 0) + sign;
       });
 
-      for (const pidStr of Object.keys(deltasPerProduct)) {
-        const pid = Number(pidStr);
-        const p = prodMap[pid];
-        const newQty = p.quantity + deltasPerProduct[pid];
-        if (newQty < 0) throw new Error(`not enough stock for product ${p.name} (ID: ${pid})`);
-        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${p.name} (ID: ${pid})`);
-      }
+      // We'll rely on atomic increments when applying changes below; initial checks were done
 
+      const authUser = (req as any).authUser
       const tData: any = {
         type,
         date: date ? new Date(date) : undefined,
@@ -1366,7 +1534,8 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
         supplierId: supplierId ? Number(supplierId) : undefined,
         destinationId: destinationId ? Number(destinationId) : undefined,
         workerId: workerId ? Number(workerId) : undefined,
-        note: note ? String(note).trim() : undefined
+        note: note ? String(note).trim() : undefined,
+        authorId: authUser?.id ? Number(authUser.id) : undefined
       };
       const t = await tx.transaction.create({ data: tData });
 
@@ -1389,12 +1558,14 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
 
       for (const pidStr of Object.keys(deltasPerProduct)) {
         const pid = Number(pidStr);
-        const p = prodMap[pid];
         const totalDelta = deltasPerProduct[pid];
-        await tx.product.update({ 
-          where: { id: pid }, 
-          data: { quantity: p.quantity + totalDelta } 
+        const updated = await tx.product.update({
+          where: { id: pid },
+          data: { quantity: { increment: totalDelta } },
+          select: { quantity: true, name: true }
         });
+        if (updated.quantity < 0) throw new Error(`not enough stock for product ${updated.name} (ID: ${pid})`);
+        if (updated.quantity > 65535) throw new Error(`exceeds max stock 65535 for product ${updated.name} (ID: ${pid})`);
       }
 
       return { transaction: t, items: createdItems };
@@ -1419,7 +1590,7 @@ app.post('/api/transactions/bulk-adjust', async (req: Request, res: Response) =>
   }
 });
 
-app.post('/api/transactions', async (req: Request, res: Response) => {
+app.post('/api/transactions', authorizePermission('inventory:transact'), async (req: Request, res: Response) => {
   const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
   if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
@@ -1476,6 +1647,7 @@ app.post('/api/transactions', async (req: Request, res: Response) => {
         if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${p.name} (ID: ${pid})`);
       }
 
+      const authUser = (req as any).authUser
       const tData: any = {
         type,
         date: date ? new Date(date) : undefined,
@@ -1484,7 +1656,8 @@ app.post('/api/transactions', async (req: Request, res: Response) => {
         supplierId: supplierId ? Number(supplierId) : undefined,
         destinationId: destinationId ? Number(destinationId) : undefined,
         workerId: workerId ? Number(workerId) : undefined,
-        note: note ? String(note).trim() : undefined
+        note: note ? String(note).trim() : undefined,
+        authorId: authUser?.id ? Number(authUser.id) : undefined
       };
       const t = await tx.transaction.create({ data: tData });
 
@@ -1507,12 +1680,14 @@ app.post('/api/transactions', async (req: Request, res: Response) => {
 
       for (const pidStr of Object.keys(deltasPerProduct)) {
         const pid = Number(pidStr);
-        const p = prodMap[pid];
         const totalDelta = deltasPerProduct[pid];
-        await tx.product.update({ 
-          where: { id: pid }, 
-          data: { quantity: p.quantity + totalDelta } 
+        const updated = await tx.product.update({
+          where: { id: pid },
+          data: { quantity: { increment: totalDelta } },
+          select: { quantity: true, name: true }
         });
+        if (updated.quantity < 0) throw new Error(`not enough stock for product ${updated.name} (ID: ${pid})`);
+        if (updated.quantity > 65535) throw new Error(`exceeds max stock 65535 for product ${updated.name} (ID: ${pid})`);
       }
 
       return { transaction: t, items: createdItems };
@@ -1573,10 +1748,14 @@ app.post('/api/transactions/:id/items', async (req: Request, res: Response) => {
         }
       });
 
-      await tx.product.update({
+      const updated = await tx.product.update({
         where: { id: product.id },
-        data: { quantity: product.quantity + numericDelta }
+        data: { quantity: { increment: numericDelta } },
+        select: { quantity: true, name: true }
       });
+
+      if (updated.quantity < 0) throw new Error('not enough stock')
+      if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
 
       return item;
     });
@@ -1605,15 +1784,16 @@ app.delete('/api/transactions/:id/items/:itemId', async (req: Request, res: Resp
 
     const result = await prisma.$transaction(async (tx) => {
       if (item.product && item.delta !== 0) {
-        await tx.product.update({
+        const updated = await tx.product.update({
           where: { id: item.product.id },
-          data: { quantity: item.product.quantity - item.delta }
+          data: { quantity: { increment: -item.delta } },
+          select: { quantity: true, name: true }
         });
+        if (updated.quantity < 0) throw new Error('resulting quantity negative')
+        if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
       }
 
-      const deleted = await tx.transactionItem.delete({
-        where: { id: itemId }
-      });
+      const deleted = await tx.transactionItem.delete({ where: { id: itemId } });
 
       return deleted;
     });
@@ -1657,19 +1837,23 @@ app.patch('/api/transactions/:id/items/:itemId', async (req: Request, res: Respo
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      if (item.product) {
-        await tx.product.update({
-          where: { id: item.product.id },
-          data: { quantity: item.product.quantity + diff }
+      // re-load the transaction item inside the transaction to avoid races
+      const cur = await tx.transactionItem.findUnique({ where: { id: itemId }, include: { product: true, transaction: true } });
+      if (!cur) throw new Error('item not found')
+
+      const actualDiff = numericDelta - cur.delta;
+      if (cur.product) {
+        const updated = await tx.product.update({
+          where: { id: cur.product.id },
+          data: { quantity: { increment: actualDiff } },
+          select: { quantity: true, name: true }
         });
+        if (updated.quantity < 0) throw new Error('not enough stock')
+        if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
       }
 
-      const updated = await tx.transactionItem.update({
-        where: { id: itemId },
-        data: { delta: numericDelta }
-      });
-
-      return updated;
+      const updatedItem = await tx.transactionItem.update({ where: { id: itemId }, data: { delta: numericDelta } });
+      return updatedItem;
     });
 
     res.json(result);

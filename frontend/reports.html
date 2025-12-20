@@ -89,6 +89,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <div id="inventoryControlsContainer"></div>
     </div>
 
     <div class="wk-card wk-mb-4">
@@ -297,6 +298,7 @@
   <div id="notificationContainer" class="notification-container"></div>
 
   <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
   <script>
     const ReportsApp = (function() {
       let charts = new Map();
@@ -464,8 +466,23 @@
           const tbody = document.querySelector('#inventoryTable tbody');
           if (!tbody) return;
           
+          // Store full data for pagination
+          window.inventoryFullData = data || [];
+          window.inventoryExpanded = false;
+          window.inventoryCurrentPage = 1;
+          const INVENTORY_INITIAL = 30;
+          const INVENTORY_PER_PAGE = 60;
+          
+          this.renderInventoryTable(data.slice(0, INVENTORY_INITIAL));
+          this.renderInventoryControls(data.length, INVENTORY_INITIAL);
+        },
+
+        renderInventoryTable(items) {
+          const tbody = document.querySelector('#inventoryTable tbody');
+          if (!tbody) return;
+          
           const fragment = document.createDocumentFragment();
-          data.forEach(item => {
+          items.forEach(item => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
               <td class="py-2">${Utils.escapeHtml(item.name)}</td>
@@ -479,6 +496,53 @@
           
           tbody.innerHTML = '';
           tbody.appendChild(fragment);
+        },
+
+        renderInventoryControls(totalItems, currentlyShown) {
+          const container = document.getElementById('inventoryControlsContainer');
+          if (!container) return;
+          
+          container.innerHTML = '';
+          
+          if (totalItems <= 30) {
+            // No controls needed if 30 or fewer items
+            return;
+          }
+          
+          if (!window.inventoryExpanded) {
+            // Show "Show More" button
+            const btn = document.createElement('button');
+            btn.className = 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded mt-4';
+            btn.textContent = `Показать ещё (${totalItems - 30} товаров)`;
+            btn.addEventListener('click', () => {
+              window.inventoryExpanded = true;
+              window.inventoryCurrentPage = 1;
+              // Show first page of paginated view (60 items)
+              const startIdx = 0;
+              const endIdx = Math.min(60, totalItems);
+              this.renderInventoryTable(window.inventoryFullData.slice(startIdx, endIdx));
+              this.renderInventoryControls(totalItems, 60);
+            });
+            container.appendChild(btn);
+          } else {
+            // Show pagination controls using unified component
+            const totalPages = Math.ceil(totalItems / 60);
+            const paginationUI = formUtils.createPaginationControls({
+              currentPage: window.inventoryCurrentPage,
+              totalPages: totalPages,
+              onPageChange: (newPage) => {
+                window.inventoryCurrentPage = newPage;
+                const startIdx = (newPage - 1) * 60;
+                const endIdx = Math.min(newPage * 60, totalItems);
+                this.renderInventoryTable(window.inventoryFullData.slice(startIdx, endIdx));
+                // Re-render controls with updated page
+                this.renderInventoryControls(totalItems, 60);
+              },
+              position: 'bottom-center',
+              id: 'inventory-pagination'
+            });
+            container.appendChild(paginationUI);
+          }
         },
 
         async loadTransactions() {

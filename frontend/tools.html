@@ -34,6 +34,7 @@
           <a class="wk-nav-item" href="destinations.html">Объекты</a>
           <a class="wk-nav-item active" href="tools.html">Инструменты</a>
         </nav>
+          <script src="js/form-utils.js"></script>
         
         <div class="wk-flex wk-gap-2">
           <button id="addBtn" class="wk-btn wk-btn-primary">
@@ -56,7 +57,8 @@
             <tr>
               <th>ID</th>
               <th>Название</th>
-              <th>Статус</th>
+              <th>Всего</th>
+              <th>Доступно</th>
               <th>Действия</th>
             </tr>
           </thead>
@@ -69,6 +71,7 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="form-utils.js"></script>
   <script>
     let tools = [];
 
@@ -102,74 +105,42 @@
       
       if (toolsList.length === 0) {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td colspan="4" style="text-align:center;color:#888">Нет инструментов</td>`;
+        tr.innerHTML = `<td colspan="5" style="text-align:center;color:#888">Нет инструментов</td>`;
         tbody.appendChild(tr);
         return;
       }
       
       toolsList.forEach(tool => {
-        const activeAssignment = (tool.assignments && tool.assignments.length) ? tool.assignments[0] : null;
-        const owner = activeAssignment ? activeAssignment.worker : null;
         const tr = document.createElement('tr');
-
-        let statusClass = 'status-available';
-        if (owner) statusClass = 'status-assigned';
-        else if (tool.status && tool.status.toLowerCase().includes('сломан')) statusClass = 'status-broken';
-        else if (tool.status && tool.status.toLowerCase().includes('ремонт')) statusClass = 'status-maintenance';
-
+        const assigned = tool.totalQuantity - tool.availableQuantity;
+        
         tr.innerHTML = `
           <td>${tool.id}</td>
           <td>${escapeHtml(tool.name)}</td>
-          <td class="${statusClass}">${escapeHtml(tool.status)}</td>
+          <td>${tool.totalQuantity}</td>
+          <td class="${tool.availableQuantity === 0 ? 'text-red-600 font-bold' : ''}">${tool.availableQuantity}</td>
           <td>
-            <div class="action-buttons gap-4">
-              ${owner ? 
-                `<span class="wk-text-muted wk-text-sm">У ${escapeHtml(owner.fullName)}</span>
-                 <button class="wk-btn wk-btn-danger wk-btn-sm unassign" data-tool="${tool.id}" data-owner="${owner.id}">Снять</button>` :
-                `<button class="wk-btn wk-btn-primary wk-btn-sm assign w-full max-w-24" data-tool="${tool.id}">Выдать</button>
-                 <button class="wk-btn wk-btn-secondary wk-btn-sm edit w-full max-w-24" data-id="${tool.id}">Изменить</button>
-                 <button class="wk-btn wk-btn-danger wk-btn-sm delete w-full max-w-24" data-id="${tool.id}">Удалить</button>`
-              }
+            <div class="action-buttons gap-2">
+              <button class="wk-btn wk-btn-primary wk-btn-sm assign" data-tool="${tool.id}" ${tool.availableQuantity === 0 ? 'disabled' : ''}>Выдать</button>
+              <button class="wk-btn wk-btn-secondary wk-btn-sm edit" data-id="${tool.id}">Изменить</button>
+              <button class="wk-btn wk-btn-danger wk-btn-sm delete" data-id="${tool.id}">Удалить</button>
             </div>
           </td>
         `;
 
-        if (owner) {
-          tr.querySelector('.unassign').addEventListener('click', async (e) => {
-            const tid = Number(e.currentTarget.getAttribute('data-tool'));
-            const wid = Number(e.currentTarget.getAttribute('data-owner'));
-            if (!confirm('Снять инструмент с работника?')) return;
-            await unassignTool(tid, wid);
-          });
-        } else {
-          tr.querySelector('.assign').addEventListener('click', () => openAssignModal(tool));
-          tr.querySelector('.edit').addEventListener('click', () => openEditModal(tool));
-          tr.querySelector('.delete').addEventListener('click', () => openDeleteModal(tool.id));
-        }
+        tr.querySelector('.assign').addEventListener('click', () => openAssignModal(tool));
+        tr.querySelector('.edit').addEventListener('click', () => openEditModal(tool));
+        tr.querySelector('.delete').addEventListener('click', () => openDeleteModal(tool.id));
 
         tbody.appendChild(tr);
       });
     }
 
-    async function unassignTool(toolId, workerId) {
-      try {
-        const r = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { method: 'POST' });
-        if (!r.ok) { 
-          const j = await r.json().catch(() => ({})); 
-          throw new Error(j.error || 'Ошибка сервера'); 
-        }
-        showNotification('Инструмент успешно снят', 'success');
-        await load();
-      } catch (err) {
-        console.error('Ошибка при снятии инструмента:', err);
-        showNotification('Ошибка при снятии: ' + (err.message || err), 'error');
-      }
-    }
-
     async function openAssignModal(tool) {
       const modalRoot = document.getElementById('modalRoot');
       
-      const allWorkers = await authFetch('/api/workers').then(r => r.json());
+      const workerData = await authFetch('/api/workers').then(r => r.json());
+      const allWorkers = formUtils.extractItems(workerData);
       const available = (allWorkers || []);
  
       modalRoot.innerHTML = `
@@ -188,6 +159,11 @@
                   ).join('')}
                 </select>
               </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="quantity" min="1" max="${tool.availableQuantity}" value="1" required>
+                <small class="text-gray-500">Доступно: ${tool.availableQuantity}</small>
+              </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
                 <button type="button" id="cancelAssign" class="wk-btn wk-btn-secondary">Отмена</button>
                 <button type="submit" class="wk-btn wk-btn-primary">Выдать</button>
@@ -201,19 +177,31 @@
       
       document.getElementById('assignToolForm').onsubmit = async (e) => {
         e.preventDefault();
-        const workerId = Number(e.target.workerId.value);
+        const form = e.target;
+        const workerId = Number(form.workerId.value);
+        const quantity = Number(form.quantity.value);
         if (!workerId) {
           showNotification('Выберите работника', 'error');
           return;
         }
-        
-        await assignTool(tool.id, workerId);
+        if (!quantity || quantity < 1) {
+          showNotification('Укажите корректное количество', 'error');
+          return;
+        }
+
+        await formUtils.disableDuring(form, async () => {
+          await assignTool(tool.id, workerId, quantity);
+        }, { text: 'Выдача...' });
       };
     }
 
-    async function assignTool(toolId, workerId) {
+    async function assignTool(toolId, workerId, quantity = 1) {
       try {
-        const resp = await authFetch(`/api/workers/${workerId}/assignTool/${toolId}`, { method: 'POST' });
+        const resp = await authFetch(`/api/workers/${workerId}/assignTool/${toolId}`, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity })
+        });
         if (!resp.ok) {
           const j = await resp.json().catch(() => ({}));
           throw new Error(j.error || 'Ошибка сервера');
@@ -237,6 +225,10 @@
               <div class="wk-form-group">
                 <label class="wk-form-label">Название</label>
                 <input class="wk-form-input" name="name" required placeholder="Введите название инструмента">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="totalQuantity" min="1" value="1" required placeholder="Введите количество">
               </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
                 <button type="button" id="cancelAddBtn" class="wk-btn wk-btn-secondary">Отмена</button>
@@ -264,15 +256,23 @@
 
       const form = e.target;
       const payload = {
-        name: form.name.value.trim()
+        name: form.name.value.trim(),
+        totalQuantity: Number(form.totalQuantity.value)
       };
 
       if (!payload.name) {
         showNotification('Поле "Название" обязательно для заполнения', 'error');
         return;
       }
+      
+      if (payload.totalQuantity < 1) {
+        showNotification('Количество должно быть больше 0', 'error');
+        return;
+      }
 
-      await createTool(payload);
+      await formUtils.disableDuring(form, async () => {
+        await createTool(payload);
+      }, { text: 'Сохранение...' });
     }
 
     async function createTool(payload) {
@@ -310,6 +310,10 @@
                 <label class="wk-form-label">Название</label>
                 <input class="wk-form-input" name="name" value="${escapeHtml(tool.name)}" required placeholder="Введите название инструмента">
               </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Всего количество</label>
+                <input type="number" class="wk-form-input" name="totalQuantity" min="1" value="${tool.totalQuantity}" required>
+              </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
                 <button type="button" id="cancelEditBtn" class="wk-btn wk-btn-secondary">Отмена</button>
                 <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
@@ -336,10 +340,18 @@
  
       const form = e.target;
       const payload = {
-        name: form.name.value.trim()
+        name: form.name.value.trim(),
+        totalQuantity: Number(form.totalQuantity.value)
       };
+      
+      if (payload.totalQuantity < 1) {
+        showNotification('Количество должно быть больше 0', 'error');
+        return;
+      }
  
-      await updateTool(id, payload);
+      await formUtils.disableDuring(form, async () => {
+        await updateTool(id, payload);
+      }, { text: 'Сохранение...' });
     }
  
     async function updateTool(id, payload) {

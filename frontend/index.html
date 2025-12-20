@@ -113,6 +113,7 @@
               <th>Кол-во</th>
               <th>Тип</th>
               <th>Кто/куда</th>
+              <th>Автор</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -125,7 +126,66 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
   <script>
+    // Global supplier state
+    window.allSuppliers = [];
+
+    // Fetch suppliers and update global state
+    async function fetchSuppliers() {
+      try {
+        const res = await authFetch('/api/suppliers');
+        const data = await res.json();
+        window.allSuppliers = formUtils.extractItems(data);
+        return window.allSuppliers;
+      } catch (error) {
+        console.error('Error fetching suppliers:', error);
+        return [];
+      }
+    }
+
+    // Setup modal backdrop click handler (click outside to close)
+    function setupModalBackdropHandler(modalElement, onClose) {
+      if (!modalElement) return;
+      modalElement.addEventListener('click', (e) => {
+        // Only close if clicking on the backdrop itself, not the card
+        if (e.target === modalElement) {
+          if (onClose) onClose();
+          modalElement.remove();
+        }
+      });
+    }
+
+    let isWorker = true; 
+
+    async function applyWorkerRestrictions() {
+      try {
+        const user = await (window.getCurrentUser ? window.getCurrentUser() : Promise.resolve(null))
+        isWorker = !!(user && user.role === 'worker')
+
+        if (!isWorker) return
+
+        document.querySelectorAll('nav.wk-nav a').forEach(a => {
+          if (!a.classList.contains('active')) a.style.display = 'none'
+        })
+
+        const createBtn = document.getElementById('createProductBtn')
+        if (createBtn) createBtn.style.display = 'none'
+        // keep bulk button visible for workers per UX decision
+        const bulkBtn = document.getElementById('bulkAdjustBtn')
+
+        const selectAll = document.getElementById('selectAllProducts')
+        if (selectAll && selectAll.parentElement) selectAll.parentElement.removeChild(selectAll)
+
+        document.querySelectorAll('#productsTable th.sortable').forEach(th => {
+          th.style.pointerEvents = 'none'
+          th.style.opacity = '0.6'
+        })
+      } catch (e) {
+        console.error('applyWorkerRestrictions error', e)
+      }
+    }
+
     function notify(message, type = 'info') {
       try {
         const container = document.getElementById('notificationContainer') || (function(){
@@ -162,17 +222,26 @@
     let searchTimeout = null;
 
     let currentSortField = null; 
-    let currentSortDir = 'asc'; 
+    let currentSortDir = 'asc';
+    let currentPage = 1;
+    let pageSize = 75;
+    let totalPages = 1; 
 
     document.addEventListener('DOMContentLoaded', () => {
-      setupEventListeners();
-      load();
+      applyWorkerRestrictions().then(() => {
+        // Fetch initial suppliers list
+        fetchSuppliers().then(() => {
+          setupEventListeners();
+          load();
+        });
+      })
     });
 
     function setupEventListeners() {
       document.getElementById('clearFilter').addEventListener('click', () => {
         currentProductId = undefined;
         currentSearch = '';
+        currentPage = 1;
         document.getElementById('productSearch').value = '';
         document.getElementById('prodDropdown').style.display = 'none';
         load();
@@ -181,6 +250,7 @@
       document.getElementById('productSearch').addEventListener('input', handleSearchInput);
       document.getElementById('productSearch').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
+          currentPage = 1;
           document.getElementById('prodDropdown').style.display = 'none';
           load();
         }
@@ -227,14 +297,6 @@
           spinner.classList.add('hidden');
         });
       });
-
-      document.addEventListener('click', (e) => {
-        const btn = e.target.closest('.add-entity-btn');
-        if (btn) {
-          const type = btn.getAttribute('data-type');
-          if (type) openAddEntityForm(type);
-        }
-      });
       
       document.getElementById('logoutBtn').addEventListener('click', logout);
 
@@ -258,6 +320,7 @@
       const v = e.target.value;
       currentSearch = v;
       currentProductId = undefined;
+      currentPage = 1;
       if (searchTimeout) clearTimeout(searchTimeout);
       const dd = document.getElementById('prodDropdown');
       if (!v) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
@@ -268,8 +331,10 @@
             authFetch('/api/products?search=' + encodeURIComponent(v)),
             authFetch('/api/suppliers')
           ]);
-          const products = await prodRes.json();
-          const suppliers = (await supRes.json()).filter(s => s.name.toLowerCase().includes(v.toLowerCase()));
+          const productData = await prodRes.json();
+          const products = formUtils.extractItems(productData);
+          const supplierData = await supRes.json();
+          const suppliers = formUtils.extractItems(supplierData).filter(s => s.name.toLowerCase().includes(v.toLowerCase()));
           
           dd.innerHTML = '';
 
@@ -296,13 +361,21 @@
               
               (async () => {
                 try {
-                  const all = await (await authFetch('/api/products')).json();
+                  const productData = await (await authFetch('/api/products')).json();
+                  const all = formUtils.extractItems(productData);
+                  const q = s.name.toLowerCase();
                   const filtered = all.filter(p => {
-                    const hasSupplier = (p.transactions || []).some(
-                      t => t.type === 'in' && ((t.supplier && t.supplier.name && t.supplier.name.toLowerCase().includes(s.name.toLowerCase())) ||
-                                              (t.supplierName && t.supplierName.toLowerCase().includes(s.name.toLowerCase())))
+                    // Prefer server-side aggregated suppliers list when available
+                    if (Array.isArray(p.supplied) && p.supplied.length > 0) {
+                      return p.supplied.some(sp => (sp.name || '').toLowerCase().includes(q));
+                    }
+                    // fallback to top-level supplierName
+                    if (p.supplierName && p.supplierName.toLowerCase().includes(q)) return true;
+                    // fallback to transaction-level supplier info
+                    return (p.transactions || []).some(
+                      t => t.type === 'in' && ((t.supplier && t.supplier.name && t.supplier.name.toLowerCase().includes(q)) ||
+                                              (t.supplierName && t.supplierName.toLowerCase().includes(q)))
                     );
-                    return hasSupplier;
                   });
                   render(filtered);
                 } catch (error) {
@@ -326,12 +399,26 @@
       try {
         if (currentProductId) {
           const res = await authFetch('/api/products');
-          const all = await res.json();
-          return all.filter(p => p.id === currentProductId);
+          const data = await res.json();
+          const all = formUtils.extractItems(data);
+          return { items: all.filter(p => p.id === currentProductId), page: 1, limit: pageSize, total: 1 };
         }
-        const url = currentSearch ? '/api/products?search=' + encodeURIComponent(currentSearch) : '/api/products';
+        
+        let url = '/api/products?page=' + currentPage + '&limit=' + pageSize;
+        if (currentSearch) url += '&search=' + encodeURIComponent(currentSearch);
+        
         const res = await authFetch(url);
-        return res.json();
+        const data = await res.json();
+        
+        // Normalize response
+        if (data.items && data.page && data.limit) {
+          totalPages = Math.ceil(data.total / data.limit);
+          return data;
+        } else {
+          const items = formUtils.extractItems(data);
+          totalPages = Math.ceil(items.length / pageSize);
+          return { items, page: currentPage, limit: pageSize, total: items.length };
+        }
       } catch (error) {
         console.error('Error fetching products:', error);
         notify('Ошибка при загрузке товаров', 'error');
@@ -361,6 +448,14 @@
 
     function getSupplierString(p) {
       if (!p) return '—'
+      if (Array.isArray(p.supplied) && p.supplied.length > 0) {
+        const names = p.supplied.map(s => s.name).filter(Boolean)
+        if (names.length === 0) return '—'
+        return names.join(', ')
+      }
+
+      if (p.supplierName) return p.supplierName
+      if (p.supplier && p.supplier.name) return p.supplier.name
       const txs = Array.isArray(p.transactions) ? p.transactions : []
       for (let i = txs.length - 1; i >= 0; i--) {
         const t = txs[i]
@@ -373,7 +468,9 @@
       return '—'
     }
 
-    function render(products){
+    function render(paginatedData){
+      const products = formUtils.extractItems(paginatedData) || [];
+      
       let sorted = products.slice();
       if (currentSortField) {
         sorted.sort((a, b) => {
@@ -409,17 +506,17 @@
         const supplierDisplay = getSupplierString(p);
         const tr = document.createElement('tr')
         tr.innerHTML = `
-          <td><input class="prod-select" type="checkbox" data-id="${p.id}"></td>
+          <td>${isWorker ? '' : `<input class="prod-select" type="checkbox" data-id="${p.id}">`}</td>
           <td>${p.id}</td>
-          <td contenteditable="true" class="editable-cell" data-id="${p.id}" data-field="name" data-old-value="${escapeHtml(p.name || '')}">${escapeHtml(p.name || '')}</td>
-          <td>${supplierDisplay}</td>
+          <td ${isWorker ? '' : `contenteditable="true" class="editable-cell" data-id="${p.id}" data-field="name" data-old-value="${escapeHtml(p.name || '')}"`}>${escapeHtml(p.name || '')}</td>
+          <td>${escapeHtml(supplierDisplay)}</td>
           <td>${p.quantity}</td>
-          <td contenteditable="true" class="editable-cell" data-id="${p.id}" data-field="unit" data-old-value="${escapeHtml(p.unit || '')}">${escapeHtml(p.unit || '')}</td>
+          <td ${isWorker ? '' : `contenteditable="true" class="editable-cell" data-id="${p.id}" data-field="unit" data-old-value="${escapeHtml(p.unit || '')}"`}>${escapeHtml(p.unit || '')}</td>
           <td>
             <div class="wk-flex wk-gap-1 wk-flex-wrap md:flex-nowrap">
               <button class="wk-btn wk-btn-primary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="in">+ Приход</button>
               <button class="wk-btn wk-btn-secondary wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="out">- Расход</button>
-              <button class="wk-btn wk-btn-danger wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="delete">Удалить</button>
+              ${isWorker ? '' : `<button class="wk-btn wk-btn-danger wk-btn-sm w-full max-w-24" data-id="${p.id}" data-action="delete">Удалить</button>`}
             </div>
           </td>`;
         tbody.appendChild(tr);
@@ -450,10 +547,10 @@
             }
  
             const [workers, destinations, suppliers, allProducts] = await Promise.all([
-              authFetch('/api/workers').then(r => r.json()).catch(()=>[]),
-              authFetch('/api/locations').then(r => r.json()).catch(()=>[]),
-              authFetch('/api/suppliers').then(r => r.json()).catch(()=>[]),
-              authFetch('/api/products').then(r => r.json()).catch(()=>[])
+              authFetch('/api/workers').then(r => r.json()).then(d => formUtils.extractItems(d)).catch(()=>[]),
+              authFetch('/api/locations').then(r => r.json()).then(d => formUtils.extractItems(d)).catch(()=>[]),
+              authFetch('/api/suppliers').then(r => r.json()).then(d => formUtils.extractItems(d)).catch(()=>[]),
+              authFetch('/api/products').then(r => r.json()).then(d => formUtils.extractItems(d)).catch(()=>[])
             ]);
  
             const modalRoot = document.getElementById('modalRoot');
@@ -470,7 +567,7 @@
               <div class="modal">
                 <div class="modal-card">
                   <h3 class="wk-card-title wk-mb-4">Массовый приход/расход (${selected.length} шт.)</h3>
-                  <form id="bulkForm">
+                  <form id="bulkForm" onsubmit="return false">
                     <div class="wk-form-group">
                       <label class="wk-form-label">Тип операции</label>
                       <select class="wk-form-input" name="type" id="bulkType">
@@ -494,6 +591,7 @@
             function renderBulkExtra(type) {
               const el = document.getElementById('bulkExtra');
               if (!el) return;
+              
               if (type === 'in') {
                 el.innerHTML = `
                   <label class="wk-form-label">Поставщик (необязательно)</label>
@@ -502,8 +600,33 @@
                       <option value="">—</option>
                       ${suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
                     </select>
+                    <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier" style="min-width: 40px;">+</button>
                   </div>
                 `;
+                
+                // Setup callback for supplier addition in bulk modal
+                const bulkAddSupplierBtn = el.querySelector('.add-entity-btn[data-type="supplier"]');
+                if (bulkAddSupplierBtn) {
+                  bulkAddSupplierBtn.onclick = (e) => {
+                    e.preventDefault();
+                    openAddEntityForm('supplier', (newSupplierId, updatedSuppliers) => {
+                      // Use updated suppliers if provided, otherwise refresh
+                      if (updatedSuppliers) {
+                        suppliers = updatedSuppliers;
+                      } else {
+                        fetchSuppliers().then(updated => suppliers = updated);
+                      }
+                      renderBulkExtra('in');
+                      // Auto-select the new supplier
+                      setTimeout(() => {
+                        const select = document.querySelector('select[name="supplierId"]');
+                        if (select) {
+                          select.value = String(newSupplierId);
+                        }
+                      }, 50);
+                    });
+                  };
+                }
               } else {
                 el.innerHTML = `
                   <label class="wk-form-label">Объект</label>
@@ -525,49 +648,52 @@
               renderBulkExtra(e.target.value);
             });
 
-            document.getElementById('cancelBulk').onclick = () => modalRoot.innerHTML = '';
+            document.getElementById('cancelBulk').addEventListener('click', () => modalRoot.innerHTML = '');
   
-            document.getElementById('bulkForm').onsubmit = async (e) => {
+            document.getElementById('bulkForm').addEventListener('submit', async (e) => {
               e.preventDefault();
               const form = e.target;
-              const type = form.type.value;
-              const payloadItems = Array.from(document.querySelectorAll('.bulk-delta')).map(el => ({
-                productId: Number(el.getAttribute('data-id')),
-                delta: Number(el.value)
-              }));
- 
-              for (const it of payloadItems) {
-                if (!Number.isInteger(it.delta) || it.delta <= 0) {
-                  notify('Каждое количество должно быть положительным целым числом', 'error');
-                  return;
+
+              await formUtils.disableDuring(form, async () => {
+                const type = form.type.value;
+                const payloadItems = Array.from(document.querySelectorAll('.bulk-delta')).map(el => ({
+                  productId: Number(el.getAttribute('data-id')),
+                  delta: Number(el.value)
+                }));
+
+                for (const it of payloadItems) {
+                  if (!Number.isInteger(it.delta) || it.delta <= 0) {
+                    notify('Каждое количество должно быть положительным целым числом', 'error');
+                    return;
+                  }
                 }
-              }
-  
-              const extra = { type, items: payloadItems };
-              if (type === 'in') {
-                extra.supplierId = form.supplierId.value ? Number(form.supplierId.value) : undefined;
-              } else {
-                extra.destinationId = form.destinationId.value ? Number(form.destinationId.value) : undefined;
-                extra.workerId = form.workerId.value ? Number(form.workerId.value) : undefined;
-              }
-  
-              try {
-                const resp = await authFetch('/api/transactions/bulk-adjust', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(extra)
-                });
-                if (!resp.ok) {
-                  const j = await resp.json().catch(()=>({}));
-                  throw new Error(j.error || 'Ошибка сервера');
+
+                const extra = { type, items: payloadItems };
+                if (type === 'in') {
+                  extra.supplierId = form.supplierId.value ? Number(form.supplierId.value) : undefined;
+                } else {
+                  extra.destinationId = form.destinationId.value ? Number(form.destinationId.value) : undefined;
+                  extra.workerId = form.workerId.value ? Number(form.workerId.value) : undefined;
                 }
-                modalRoot.innerHTML = '';
-                await load();
-                notify('Операция успешно выполнена', 'success');
-              } catch (err) {
-                notify('Ошибка: ' + (err.message || err), 'error');
-              }
-            };
+
+                try {
+                  const resp = await authFetch('/api/transactions/bulk-adjust', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(extra)
+                  });
+                  if (!resp.ok) {
+                    const j = await resp.json().catch(()=>({}));
+                    throw new Error(j.error || 'Ошибка сервера');
+                  }
+                  modalRoot.innerHTML = '';
+                  await load();
+                  notify('Операция успешно выполнена', 'success');
+                } catch (err) {
+                  notify('Ошибка: ' + (err.message || err), 'error');
+                }
+              }, { text: 'Выполняется...' });
+            });
           } catch (error) {
             console.error('Bulk adjustment error:', error);
             notify('Ошибка при массовой операции', 'error');
@@ -586,17 +712,17 @@
             <p class="wk-mb-4">Старое: <em>${escapeHtml(oldVal)}</em></p>
             <p class="wk-mb-4">Новое: <em>${escapeHtml(newVal)}</em></p>
             <div class="wk-flex wk-gap-2 wk-justify-end">
-              <button id="cancelEdit" class="wk-btn wk-btn-secondary">Отменить</button>
-              <button id="confirmEdit" class="wk-btn wk-btn-primary">Сохранить</button>
+              <button type="button" id="cancelEdit" class="wk-btn wk-btn-secondary">Отменить</button>
+              <button type="button" id="confirmEdit" class="wk-btn wk-btn-primary">Сохранить</button>
             </div>
           </div>
         </div>
       `
-      document.getElementById('cancelEdit').onclick = () => {
+      document.getElementById('cancelEdit').addEventListener('click', () => {
         modalRoot.innerHTML = ''
         cellEl.textContent = oldVal
-      }
-      document.getElementById('confirmEdit').onclick = async () => {
+      });
+      document.getElementById('confirmEdit').addEventListener('click', async () => {
         try {
           const payload = { [field]: newVal }
           const resp = await authFetch('/api/products/' + id, {
@@ -615,24 +741,30 @@
           modalRoot.innerHTML = ''
           cellEl.textContent = oldVal
         }
-      }
+      });
     }
 
     async function openAdjustModal(productId, type) {
       try {
         const [workers, destinations] = await Promise.all([
-          authFetch('/api/workers').then(r => r.json()),
-          authFetch('/api/locations').then(r => r.json())
+          authFetch('/api/workers').then(r => r.json()).then(d => formUtils.extractItems(d)),
+          authFetch('/api/locations').then(r => r.json()).then(d => formUtils.extractItems(d))
         ]);
         const modalRoot = document.getElementById('modalRoot');
 
         if (type === 'in') {
-          const suppliers = await authFetch('/api/suppliers').then(r => r.json());
-          modalRoot.innerHTML = `
-            <div class="modal">
+          const supplierData = await authFetch('/api/suppliers').then(r => r.json());
+          let suppliers = formUtils.extractItems(supplierData);
+          
+          const inModal = document.createElement('div');
+          inModal.className = 'modal';
+          inModal.setAttribute('data-modal', 'adjust-in');
+          
+          function renderContent() {
+            inModal.innerHTML = `
               <div class="modal-card">
                 <h3 class="wk-card-title wk-mb-4">Приход товара #${productId}</h3>
-                <form id="adjFormIn">
+                <form id="adjFormIn" onsubmit="return false">
                   <div class="wk-form-group">
                     <label class="wk-form-label">Количество</label>
                     <input class="wk-form-input" name="delta" type="number" step="1" min="1" required>
@@ -653,23 +785,151 @@
                   </div>
                 </form>
               </div>
-            </div>
-          `;
+            `;
+          }
           
-          document.getElementById('cancelBtnIn').onclick = () => modalRoot.innerHTML = '';
-          document.getElementById('adjFormIn').onsubmit = async (e) => {
+          renderContent();
+          modalRoot.appendChild(inModal);
+          setupModalBackdropHandler(inModal, null);
+          
+          // Single delegation handler for all clicks in this modal
+          inModal.addEventListener('click', (e) => {
+            if (e.target.id === 'cancelBtnIn') {
+              inModal.remove();
+            } else if (e.target.classList.contains('add-entity-btn') && e.target.getAttribute('data-type') === 'supplier') {
+              e.preventDefault();
+              openAddEntityForm('supplier', async (newSupplierId) => {
+                const updated = formUtils.extractItems(await authFetch('/api/suppliers').then(r => r.json()));
+                const select = inModal.querySelector('select[name="supplierId"]');
+                if (select) {
+                  select.innerHTML = `
+                    <option value="">—</option>
+                    ${updated.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                  `;
+                }
+              });
+            }
+          });
+          
+          // Form submit handler
+          inModal.addEventListener('submit', async (e) => {
+            if (e.target.id !== 'adjFormIn') return;
             e.preventDefault();
             const form = e.target;
+
+            await formUtils.disableDuring(form, async () => {
+              const raw = Number(form.delta.value);
+              if (!Number.isInteger(raw) || raw <= 0) { 
+                notify('Нужно целое положительное число', 'error'); 
+                return; 
+              }
+              
+              const data = {
+                delta: raw,
+                type: 'in',
+                supplierId: form.supplierId.value ? Number(form.supplierId.value) : undefined
+              };
+              
+              const resp = await authFetch(`/api/products/${productId}/adjust`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(data)
+              });
+              
+              const json = await resp.json().catch(() => ({}));
+              if (!resp.ok) {
+                notify('Ошибка: ' + (json.error || JSON.stringify(json)), 'error');
+              } else {
+                inModal.remove();
+                load();
+              }
+            }, { text: 'Подтверждение...' });
+          });
+          
+          return;
+        }
+
+        const outModal = document.createElement('div');
+        outModal.className = 'modal';
+        
+        outModal.innerHTML = `
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Расход товара #${productId}</h3>
+            <form id="adjFormOut" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input class="wk-form-input" name="delta" type="number" step="1" min="1" required>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Куда (объект)</label>
+                <div class="wk-flex wk-gap-2">
+                  <select class="wk-form-input" name="destinationId" required style="flex: 1;">
+                    <option value="">Выберите объект</option>
+                    ${destinations.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')}
+                  </select>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="destination">+</button>
+                </div>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Кому (работник)</label>
+                <select class="wk-form-input" name="workerId" required>
+                  <option value="">Выберите работника</option>
+                  ${workers.map(w => `<option value="${w.id}">${escapeHtml(w.fullName)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelBtnOut" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Подтвердить</button>
+              </div>
+            </form>
+          </div>
+        `;
+        
+        modalRoot.appendChild(outModal);
+        setupModalBackdropHandler(outModal, null);
+        
+        // Single delegation handler for all clicks in this modal
+        outModal.addEventListener('click', (e) => {
+          if (e.target.id === 'cancelBtnOut') {
+            outModal.remove();
+          } else if (e.target.classList.contains('add-entity-btn') && e.target.getAttribute('data-type') === 'destination') {
+            e.preventDefault();
+            openAddEntityForm('destination', async (newDestId) => {
+              const updated = formUtils.extractItems(await authFetch('/api/locations').then(r => r.json()));
+              const select = outModal.querySelector('select[name="destinationId"]');
+              if (select) {
+                select.innerHTML = `
+                  <option value="">Выберите объект</option>
+                  ${updated.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')}
+                `;
+              }
+            });
+          }
+        });
+        
+        // Form submit handler
+        outModal.addEventListener('submit', async (e) => {
+          if (e.target.id !== 'adjFormOut') return;
+          e.preventDefault();
+          const form = e.target;
+
+          await formUtils.disableDuring(form, async () => {
             const raw = Number(form.delta.value);
             if (!Number.isInteger(raw) || raw <= 0) { 
               notify('Нужно целое положительное число', 'error'); 
               return; 
             }
             
+            if (!form.workerId.value) { 
+              notify('Выберите работника', 'error'); 
+              return; 
+            }
+            
             const data = {
               delta: raw,
-              type: 'in',
-              supplierId: form.supplierId.value ? Number(form.supplierId.value) : undefined
+              type: 'out',
+              destinationId: Number(form.destinationId.value),
+              workerId: Number(form.workerId.value)
             };
             
             const resp = await authFetch(`/api/products/${productId}/adjust`, {
@@ -682,228 +942,178 @@
             if (!resp.ok) {
               notify('Ошибка: ' + (json.error || JSON.stringify(json)), 'error');
             } else {
-              modalRoot.innerHTML = '';
+              outModal.remove();
               load();
             }
-          };
-          return;
-        }
-
-        modalRoot.innerHTML = `
-          <div class="modal">
-            <div class="modal-card">
-              <h3 class="wk-card-title wk-mb-4">Расход товара #${productId}</h3>
-              <form id="adjFormOut">
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Количество</label>
-                  <input class="wk-form-input" name="delta" type="number" step="1" min="1" required>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Куда (объект)</label>
-                  <div class="wk-flex wk-gap-2">
-                    <select class="wk-form-input" name="destinationId" required style="flex: 1;">
-                      <option value="">Выберите объект</option>
-                      ${destinations.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')}
-                    </select>
-                    <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="destination">+</button>
-                  </div>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Кому (работник)</label>
-                  <select class="wk-form-input" name="workerId" required>
-                    <option value="">Выберите работника</option>
-                    ${workers.map(w => `<option value="${w.id}">${escapeHtml(w.fullName)}</option>`).join('')}
-                  </select>
-                </div>
-                <div class="wk-flex wk-gap-2 wk-justify-between">
-                  <button type="button" id="cancelBtnOut" class="wk-btn wk-btn-secondary">Отмена</button>
-                  <button type="submit" class="wk-btn wk-btn-primary">Подтвердить</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        `;
-        
-        document.getElementById('cancelBtnOut').onclick = () => modalRoot.innerHTML = '';
-        document.getElementById('adjFormOut').onsubmit = async (e) => {
-          e.preventDefault();
-          const form = e.target;
-          const raw = Number(form.delta.value);
-          if (!Number.isInteger(raw) || raw <= 0) { 
-            notify('Нужно целое положительное число', 'error'); 
-            return; 
-          }
-          
-          if (!form.workerId.value) { 
-            notify('Выберите работника', 'error'); 
-            return; 
-          }
-          
-          const data = {
-            delta: raw,
-            type: 'out',
-            destinationId: Number(form.destinationId.value),
-            workerId: Number(form.workerId.value)
-          };
-          
-          const resp = await authFetch(`/api/products/${productId}/adjust`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(data)
-          });
-          
-          const json = await resp.json().catch(() => ({}));
-          if (!resp.ok) {
-            notify('Ошибка: ' + (json.error || JSON.stringify(json)), 'error');
-          } else {
-            modalRoot.innerHTML = '';
-            load();
-          }
-        };
+          }, { text: 'Подтверждение...' });
+        })
       } catch (error) {
         console.error('Error opening adjust modal:', error);
         notify('Ошибка при открытии формы операции', 'error');
       }
     }
 
-    async function openAddEntityForm(type) {
-      const modalRoot = document.getElementById('modalRoot')
+    async function openAddEntityForm(type, onSuccess) {
+      const modalRoot = document.getElementById('modalRoot');
+      
       if (type === 'supplier') {
-        const wrapper = document.createElement('div')
-        wrapper.innerHTML = `
-          <div class="modal" data-modal="add-entity">
-            <div class="modal-card">
-              <div class="wk-card-title wk-mb-4">Добавить поставщика</div>
-              <form id="addSupplierForm">
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Название</label>
-                  <input class="wk-form-input" name="name" required>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Телефон</label>
-                  <input class="wk-form-input" name="phone" placeholder="+7-900-000-00-00">
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Email</label>
-                  <input class="wk-form-input" name="email" type="email" placeholder="name@example.com">
-                </div>
-                <div class="wk-flex wk-gap-2 wk-justify-between">
-                  <button type="button" class="wk-btn wk-btn-secondary" onclick="this.closest('[data-modal=add-entity]').remove()">Отмена</button>
-                  <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
-                </div>
-              </form>
+        const childModal = document.createElement('div');
+        childModal.className = 'modal';
+        childModal.innerHTML = `
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Добавить поставщика</h3>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Название</label>
+              <input id="supplier-name" type="text" class="wk-form-input" required>
+            </div>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Телефон</label>
+              <input id="supplier-phone" type="text" class="wk-form-input">
+            </div>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Email</label>
+              <input id="supplier-email" type="email" class="wk-form-input">
+            </div>
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button type="button" id="supplier-cancel" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button type="button" id="supplier-save" class="wk-btn wk-btn-primary">Сохранить</button>
             </div>
           </div>
-        `
-        modalRoot.appendChild(wrapper.firstElementChild)
-        document.getElementById('addSupplierForm').onsubmit = async (e) => {
-          e.preventDefault()
-          const f = e.target
-          const data = { 
-            name: f.name.value.trim(), 
-            phone: f.phone.value.trim(), 
-            email: f.email.value.trim() 
+        `;
+        
+        modalRoot.appendChild(childModal);
+        
+        // Query within the child modal, not the document
+        const cancelBtn = childModal.querySelector('#supplier-cancel');
+        const saveBtn = childModal.querySelector('#supplier-save');
+        const nameInput = childModal.querySelector('#supplier-name');
+        const phoneInput = childModal.querySelector('#supplier-phone');
+        const emailInput = childModal.querySelector('#supplier-email');
+        
+        cancelBtn.onclick = () => {
+          childModal.remove();
+        };
+        
+        saveBtn.onclick = async () => {
+          const name = nameInput.value.trim();
+          const phone = phoneInput.value.trim();
+          const email = emailInput.value.trim();
+          
+          if (!name) {
+            notify('Введите название', 'error');
+            return;
           }
           
-          const r = await authFetch('/api/suppliers', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(data)
-          })
+          saveBtn.disabled = true;
           
-          if (!r.ok) {
-            const err = await r.json().catch(() => ({}))
-            notify(err.error || 'Ошибка', 'error')
-            return
+          try {
+            const res = await authFetch('/api/suppliers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, phone, email })
+            });
+            
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              notify(err.error || 'Ошибка', 'error');
+              saveBtn.disabled = false;
+              return;
+            }
+            
+            const newSupplier = await res.json();
+            
+            childModal.remove();
+            notify('Поставщик добавлен', 'success');
+            
+            if (onSuccess) onSuccess(newSupplier.id);
+          } catch (e) {
+            notify(e.message || 'Ошибка', 'error');
+            saveBtn.disabled = false;
           }
-          
-          const newSupplier = await r.json()
-          document.querySelectorAll('select[name="supplierId"]').forEach(select => {
-            const opt = document.createElement('option')
-            opt.value = String(newSupplier.id)
-            opt.textContent = newSupplier.name
-            select.appendChild(opt)
-            select.value = String(newSupplier.id)
-          })
-          e.target.closest('[data-modal]').remove()
-        }
+        };
+        
       } else if (type === 'destination') {
-        const wrapper = document.createElement('div')
-        wrapper.innerHTML = `
-          <div class="modal" data-modal="add-entity">
-            <div class="modal-card">
-              <div class="wk-card-title wk-mb-4">Добавить объект</div>
-              <form id="addDestForm">
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Название</label>
-                  <input class="wk-form-input" name="name" required>
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Город</label>
-                  <input class="wk-form-input" name="city">
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Район</label>
-                  <input class="wk-form-input" name="district">
-                </div>
-                <div class="wk-form-group">
-                  <label class="wk-form-label">Адрес</label>
-                  <input class="wk-form-input" name="address">
-                </div>
-                <div class="wk-flex wk-gap-2 wk-justify-between">
-                  <button type="button" class="wk-btn wk-btn-secondary" onclick="this.closest('[data-modal=add-entity]').remove()">Отмена</button>
-                  <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
-                </div>
-              </form>
+        const childModal = document.createElement('div');
+        childModal.className = 'modal';
+        childModal.innerHTML = `
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Добавить объект</h3>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Название</label>
+              <input id="dest-name" type="text" class="wk-form-input" required>
+            </div>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Город</label>
+              <input id="dest-city" type="text" class="wk-form-input">
+            </div>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Район</label>
+              <input id="dest-district" type="text" class="wk-form-input">
+            </div>
+            <div class="wk-form-group">
+              <label class="wk-form-label">Адрес</label>
+              <input id="dest-address" type="text" class="wk-form-input">
+            </div>
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button type="button" id="dest-cancel" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button type="button" id="dest-save" class="wk-btn wk-btn-primary">Сохранить</button>
             </div>
           </div>
-        `
-        modalRoot.appendChild(wrapper.firstElementChild)
-        document.getElementById('addDestForm').onsubmit = async (e) => {
-          e.preventDefault()
-          const f = e.target
-          const data = {
-            name: f.name.value.trim(),
-            city: f.city.value.trim(),
-            district: f.district.value.trim(),
-            address: f.address.value.trim()
+        `;
+        
+        modalRoot.appendChild(childModal);
+        
+        // Query within the child modal, not the document
+        const cancelBtn = childModal.querySelector('#dest-cancel');
+        const saveBtn = childModal.querySelector('#dest-save');
+        const nameInput = childModal.querySelector('#dest-name');
+        const cityInput = childModal.querySelector('#dest-city');
+        const districtInput = childModal.querySelector('#dest-district');
+        const addressInput = childModal.querySelector('#dest-address');
+        
+        cancelBtn.onclick = () => {
+          childModal.remove();
+        };
+        
+        saveBtn.onclick = async () => {
+          const name = nameInput.value.trim();
+          const city = cityInput.value.trim();
+          const district = districtInput.value.trim();
+          const address = addressInput.value.trim();
+          
+          if (!name) {
+            notify('Введите название', 'error');
+            return;
           }
           
-          const r = await authFetch('/api/locations', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(data)
-          })
+          saveBtn.disabled = true;
           
-          if (!r.ok) {
-            const err = await r.json().catch(() => ({}))
-            notify(err.error || 'Ошибка', 'error')
-            return
+          try {
+            const res = await authFetch('/api/locations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, city, district, address })
+            });
+            
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              notify(err.error || 'Ошибка', 'error');
+              saveBtn.disabled = false;
+              return;
+            }
+            
+            const newDest = await res.json();
+            childModal.remove();
+            notify('Объект добавлен', 'success');
+            
+            if (onSuccess) onSuccess(newDest.id);
+          } catch (e) {
+            notify(e.message || 'Ошибка', 'error');
+            saveBtn.disabled = false;
           }
-          
-          const newDest = await r.json()
-          document.querySelectorAll('select[name="destinationId"]').forEach(select => {
-            const opt = document.createElement('option')
-            opt.value = String(newDest.id)
-            opt.textContent = newDest.name
-            select.appendChild(opt)
-            select.value = String(newDest.id)
-          })
-          e.target.closest('[data-modal]').remove()
-        }
+        };
       }
     }
-
-    document.addEventListener('click', (e) => {
-      if (e.target.matches('.modal')) {
-        const addEntityModal = e.target.matches('[data-modal=add-entity]')
-        if (addEntityModal) {
-          e.target.remove()
-        } else {
-          document.getElementById('modalRoot').innerHTML = ''
-        }
-      }
-    })
 
     async function openDeleteModal(productId) {
       const modalRoot = document.getElementById('modalRoot');
@@ -919,15 +1129,15 @@
               </label>
             </div>
             <div class="wk-flex wk-gap-2 wk-justify-between">
-              <button id="cancelDel" class="wk-btn wk-btn-secondary">Отмена</button>
-              <button id="confirmDelete" class="wk-btn wk-btn-danger">Удалить</button>
+              <button type="button" id="cancelDel" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button type="button" id="confirmDelete" class="wk-btn wk-btn-danger">Удалить</button>
             </div>
           </div>
         </div>
       `;
       
-      document.getElementById('cancelDel').onclick = () => modalRoot.innerHTML = '';
-      document.getElementById('confirmDelete').onclick = async () => {
+      document.getElementById('cancelDel').addEventListener('click', () => modalRoot.innerHTML = '');
+      document.getElementById('confirmDelete').addEventListener('click', async () => {
         try {
           const purge = document.getElementById('purgeTx').checked;
           const resp = await authFetch(`/api/products/${productId}?purge=${purge ? 'true' : 'false'}`, { 
@@ -945,21 +1155,30 @@
           console.error('Error deleting product:', error);
           notify('Ошибка при удалении товара', 'error');
         }
-      };
+      });
     }
 
     async function openCreateProductModal() {
       try {
         const modalRoot = document.getElementById('modalRoot');
-        const allProducts = await authFetch('/api/products').then(r => r.json());
-        const suppliers = await authFetch('/api/suppliers').then(r => r.json());
+        const productData = await authFetch('/api/products').then(r => r.json());
+        const allProducts = formUtils.extractItems(productData);
+        let suppliers = formUtils.extractItems(await authFetch('/api/suppliers').then(r => r.json()));
 
         let itemCount = 1;
+        
+        // Create persistent modal container
+        const createModal = document.createElement('div');
+        createModal.className = 'modal';
+        modalRoot.appendChild(createModal);
 
         function renderForm() {
           const itemsHtml = Array.from({ length: itemCount }, (_, i) => `
-            <div class="wk-card wk-mb-3" style="background: #f9fafb;">
-              <div class="wk-text-sm wk-font-semibold wk-mb-2">Товар ${i + 1}</div>
+            <div class="wk-card wk-mb-3 product-item" style="background: #f9fafb;" data-idx="${i}">
+              <div class="wk-flex wk-justify-between wk-items-start wk-mb-2">
+                <div class="wk-text-sm wk-font-semibold">Товар ${i + 1}</div>
+                <button type="button" class="delete-product-btn text-red-500 hover:text-red-700 font-bold" data-idx="${i}" style="font-size: 1.2em; line-height: 1; padding: 0; border: none; background: none; cursor: pointer;">✕</button>
+              </div>
               <div class="wk-form-group">
                 <label class="wk-form-label">Название</label>
                 <input class="wk-form-input product-name" data-idx="${i}" required>
@@ -981,61 +1200,125 @@
                     <option value="">—</option>
                     ${suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
                   </select>
-                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier" style="min-width: 40px;">+</button>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier" data-idx="${i}" style="min-width: 40px;">+</button>
                 </div>
               </div>
             </div>
           `).join('');
 
-          modalRoot.innerHTML = `
-            <div class="modal">
-              <div class="modal-card">
-                <h3 class="wk-card-title wk-mb-4">Создать товары (${itemCount})</h3>
-                <form id="createForm">
-                  ${itemsHtml}
-                  
-                  <div id="createError" class="wk-alert wk-alert-error hidden"></div>
-                  <div id="createSpinner" class="wk-loading hidden">
-                    <span class="wk-loading-spinner"></span>
-                    Сохранение...
+          createModal.innerHTML = `
+            <div class="modal-card">
+              <h3 class="wk-card-title wk-mb-4">Создать товары (${itemCount})</h3>
+              <form id="createForm" onsubmit="return false">
+                ${itemsHtml}
+                
+                <div id="createError" class="wk-alert wk-alert-error hidden"></div>
+                <div id="createSpinner" class="wk-loading hidden">
+                  <span class="wk-loading-spinner"></span>
+                  Сохранение...
+                </div>
+                
+                <div class="wk-flex wk-gap-2 wk-justify-between wk-flex-wrap">
+                  <button type="button" id="cancel2" class="wk-btn wk-btn-secondary">Отмена</button>
+                  <div class="wk-flex wk-gap-2">
+                    <button type="button" id="addMoreBtn" class="wk-btn wk-btn-secondary">+ Добавить ещё</button>
+                    <button type="submit" class="wk-btn wk-btn-primary">Создать</button>
                   </div>
-                  
-                  <div class="wk-flex wk-gap-2 wk-justify-between wk-flex-wrap">
-                    <button type="button" id="cancel2" class="wk-btn wk-btn-secondary">Отмена</button>
-                    <div class="wk-flex wk-gap-2">
-                      <button type="button" id="addMoreBtn" class="wk-btn wk-btn-secondary">+ Добавить ещё</button>
-                      <button type="submit" class="wk-btn wk-btn-primary">Создать</button>
-                    </div>
-                  </div>
-                </form>
-              </div>
+                </div>
+              </form>
             </div>
           `;
+        }
+        
+        renderForm();
 
-          document.getElementById('cancel2').onclick = () => modalRoot.innerHTML = '';
-          document.getElementById('addMoreBtn').onclick = (e) => {
+        // Use event delegation on the persistent modal container
+        createModal.addEventListener('click', (e) => {
+          if (e.target.id === 'cancel2') {
+            createModal.remove();
+          } else if (e.target.id === 'addMoreBtn') {
             e.preventDefault();
+            const form = createModal.querySelector('#createForm');
+            const i = itemCount;
             itemCount++;
-            renderForm();
-          };
-
-          document.getElementById('createForm').onsubmit = async (e) => {
+            const div = document.createElement('div');
+            div.className = 'wk-card wk-mb-3 product-item';
+            div.style.background = '#f9fafb';
+            div.setAttribute('data-idx', i);
+            div.innerHTML = `
+              <div class="wk-flex wk-justify-between wk-items-start wk-mb-2">
+                <div class="wk-text-sm wk-font-semibold">Товар ${i + 1}</div>
+                <button type="button" class="delete-product-btn text-red-500 hover:text-red-700 font-bold" data-idx="${i}" style="font-size: 1.2em; line-height: 1; padding: 0; border: none; background: none; cursor: pointer;">✕</button>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название</label>
+                <input class="wk-form-input product-name" data-idx="${i}" required>
+              </div>
+              <div class="wk-flex wk-gap-2">
+                <div class="wk-form-group" style="flex: 1;">
+                  <label class="wk-form-label">Ед.изм</label>
+                  <input class="wk-form-input product-unit" data-idx="${i}" value="шт">
+                </div>
+                <div class="wk-form-group" style="flex: 1;">
+                  <label class="wk-form-label">Остаток</label>
+                  <input class="wk-form-input product-qty" data-idx="${i}" type="number" step="1" min="0" max="65535" value="0" required>
+                </div>
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Поставщик (необязательно)</label>
+                <div class="wk-flex wk-gap-2">
+                  <select class="wk-form-input product-supplier" data-idx="${i}" style="flex: 1;">
+                    <option value="">—</option>
+                    ${suppliers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                  </select>
+                  <button type="button" class="wk-btn wk-btn-secondary add-entity-btn" data-type="supplier" data-idx="${i}" style="min-width: 40px;">+</button>
+                </div>
+              </div>
+            `;
+            const errorEl = form.querySelector('#createError');
+            form.insertBefore(div, errorEl);
+          } else if (e.target.classList.contains('delete-product-btn')) {
             e.preventDefault();
-            const errorEl = document.getElementById('createError');
-            const spinnerEl = document.getElementById('createSpinner');
-            errorEl.textContent = '';
-            errorEl.classList.add('hidden');
-            spinnerEl.classList.remove('hidden');
-            
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            submitBtn.disabled = true;
-            
+            const idx = e.target.getAttribute('data-idx');
+            const itemDiv = createModal.querySelector(`.product-item[data-idx="${idx}"]`);
+            if (itemDiv) itemDiv.remove();
+          } else if (e.target.classList.contains('add-entity-btn') && e.target.getAttribute('data-type') === 'supplier') {
+            e.preventDefault();
+            const itemIdx = e.target.getAttribute('data-idx');
+            openAddEntityForm('supplier', async (newSupplierId) => {
+              const updated = formUtils.extractItems(await authFetch('/api/suppliers').then(r => r.json()));
+              const targetSelect = createModal.querySelector(`.product-supplier[data-idx="${itemIdx}"]`);
+              if (targetSelect) {
+                targetSelect.innerHTML = `
+                  <option value="">—</option>
+                  ${updated.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                `;
+              }
+            });
+          }
+        });
+        
+        // Form submit handler
+        createModal.addEventListener('submit', async (e) => {
+          if (e.target.id !== 'createForm') return;
+          e.preventDefault();
+          
+          const form = e.target;
+          const errorDiv = createModal.querySelector('#createError');
+          const spinnerDiv = createModal.querySelector('#createSpinner');
+          
+          errorDiv.textContent = '';
+          errorDiv.classList.add('hidden');
+          
+          await formUtils.disableDuring(form, async () => {
+            spinnerDiv.classList.remove('hidden');
             try {
-              const items = Array.from({ length: itemCount }, (_, i) => {
-                const nameInput = document.querySelector(`.product-name[data-idx="${i}"]`);
-                const unitInput = document.querySelector(`.product-unit[data-idx="${i}"]`);
-                const qtyInput = document.querySelector(`.product-qty[data-idx="${i}"]`);
-                const suppInput = document.querySelector(`.product-supplier[data-idx="${i}"]`);
+              const items = [];
+              document.querySelectorAll('.product-item').forEach((item, idx) => {
+                const nameInput = item.querySelector('.product-name');
+                const unitInput = item.querySelector('.product-unit');
+                const qtyInput = item.querySelector('.product-qty');
+                const suppInput = item.querySelector('.product-supplier');
 
                 const name = nameInput.value.trim();
                 const unit = unitInput.value.trim();
@@ -1043,18 +1326,18 @@
                 const supplierId = suppInput.value;
 
                 if (!name) {
-                  throw new Error(`Товар ${i + 1}: название обязательно`);
+                  throw new Error(`Товар ${idx + 1}: название обязательно`);
                 }
 
                 if (!Number.isInteger(quantity) || quantity < 0) {
-                  throw new Error(`Товар ${i + 1}: остаток должен быть целым числом >= 0`);
+                  throw new Error(`Товар ${idx + 1}: остаток должен быть целым числом >= 0`);
                 }
 
                 if (quantity > 65535) {
-                  throw new Error(`Товар ${i + 1}: максимум 65535`);
+                  throw new Error(`Товар ${idx + 1}: максимум 65535`);
                 }
 
-                return { name, unit, quantity, supplierId: supplierId ? Number(supplierId) : undefined };
+                items.push({ name, unit, quantity, supplierId: supplierId ? Number(supplierId) : undefined });
               });
 
               for (const item of items) {
@@ -1070,36 +1353,54 @@
                 }
               }
 
-              modalRoot.innerHTML = '';
+              createModal.remove();
               await load();
               notify(`${items.length} товаров созданы успешно`, 'success');
-              
             } catch (error) {
-              errorEl.textContent = error.message || 'Произошла ошибка';
-              errorEl.classList.remove('hidden');
+              errorDiv.textContent = error.message || 'Произошла ошибка';
+              errorDiv.classList.remove('hidden');
             } finally {
-              spinnerEl.classList.add('hidden');
-              submitBtn.disabled = false;
+              spinnerDiv.classList.add('hidden');
             }
-          };
-        }
-
-        renderForm();
+          }, { text: 'Сохранение...' });
+        });
       } catch (error) {
-        console.error('Error opening create product modal:', error);
-        notify('Ошибка при открытии формы создания товара', 'error');
+        console.error('Error opening create modal:', error);
+        notify('Ошибка при открытии формы создания', 'error');
       }
     }
 
     async function loadStats() {
       try {
-        const [stats, recent] = await Promise.all([
-          authFetch('/api/stats').then(r => r.json()),
-          authFetch('/api/transactions/recent').then(r => r.json())
-        ]);
-        
-        document.getElementById('totalProducts').textContent = String(stats.totalProducts);
-        document.getElementById('todayTransactions').textContent = String(stats.todayTransactions);
+        // Load stats and recent transactions with defensive JSON parsing.
+        const statsResp = await authFetch('/api/stats').catch(err => { throw err });
+        if (!statsResp.ok) {
+          throw new Error('failed to load stats: ' + statsResp.status)
+        }
+        const statsCt = (statsResp.headers.get('content-type') || '')
+        let stats
+        if (statsCt.includes('application/json')) {
+          stats = await statsResp.json()
+        } else {
+          const txt = await statsResp.text().catch(()=>null)
+          console.error('stats endpoint returned non-json:', txt)
+          throw new Error('stats endpoint returned non-JSON response')
+        }
+
+        const recentResp = await authFetch('/api/transactions/recent').catch(err => { throw err });
+        let recent = []
+        if (recentResp && recentResp.ok) {
+          const recentCt = (recentResp.headers.get('content-type') || '')
+          if (recentCt.includes('application/json')) {
+            recent = await recentResp.json()
+          } else {
+            console.warn('recent transactions endpoint returned non-json; using empty list')
+            recent = []
+          }
+        }
+
+        document.getElementById('totalProducts').textContent = String(stats.totalProducts || 0);
+        document.getElementById('todayTransactions').textContent = String(stats.todayTransactions || 0);
         document.getElementById('lastActivity').textContent = stats.lastActivity ? 
           formatDate(stats.lastActivity) : '—';
 
@@ -1122,6 +1423,7 @@
               who: it.type === 'in'
                 ? (it.supplier?.name || it.supplierName || '—')
                 : (it.destination?.name || it.destinationName || '—'),
+              authorUsername: it.authorUsername,
               totalDelta: 0,
               productMap: {}
             };
@@ -1143,6 +1445,7 @@
             <td>${g.totalDelta}</td>
             <td class="type ${g.type}">${g.type}</td>
             <td>${g.who}</td>
+            <td>${g.authorUsername ? `@${escapeHtml(g.authorUsername)}` : '—'}</td>
           `;
           tbody.appendChild(tr);
         });
@@ -1154,16 +1457,59 @@
 
     async function load() {
       try {
+        // refresh role in case it changed
+        await applyWorkerRestrictions();
         const [products] = await Promise.all([
           fetchProducts(),
           loadStats()
         ]);
         render(products);
         updateSortArrows();
+        
+        // Render pagination controls
+        renderPaginationControls();
       } catch (error) {
         console.error('Error loading data:', error);
         notify('Ошибка при загрузке данных', 'error');
       }
+    }
+
+    function renderPaginationControls() {
+      // Top-right pagination
+      let topPagination = document.getElementById('pagination-top');
+      if (!topPagination) {
+        topPagination = document.createElement('div');
+        topPagination.id = 'pagination-top';
+        const tableCard = document.querySelector('.wk-card:has(#productsTable)');
+        tableCard.insertBefore(topPagination, tableCard.querySelector('.table-container'));
+      } else {
+        topPagination.innerHTML = '';
+      }
+      topPagination.appendChild(formUtils.createPaginationControls({
+        currentPage,
+        totalPages,
+        onPageChange: (page) => { currentPage = page; load(); },
+        position: 'top-right',
+        id: 'pagination-top-controls'
+      }));
+      
+      // Bottom-center pagination
+      let bottomPagination = document.getElementById('pagination-bottom');
+      if (!bottomPagination) {
+        bottomPagination = document.createElement('div');
+        bottomPagination.id = 'pagination-bottom';
+        const tableCard = document.querySelector('.wk-card:has(#productsTable)');
+        tableCard.appendChild(bottomPagination);
+      } else {
+        bottomPagination.innerHTML = '';
+      }
+      bottomPagination.appendChild(formUtils.createPaginationControls({
+        currentPage,
+        totalPages,
+        onPageChange: (page) => { currentPage = page; load(); },
+        position: 'bottom-center',
+        id: 'pagination-bottom-controls'
+      }));
     }
 
     function escapeHtml(text) {
@@ -1175,3 +1521,10 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+

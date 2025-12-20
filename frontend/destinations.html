@@ -23,9 +23,9 @@
       </button>
     </header>
 
-    <div class="wk-card wk-mb-6">
-      <div class="wk-flex wk-flex-col wk-gap-4 flex-wrap">
-        <nav class="wk-nav">
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
+        <nav class="wk-nav grow-1 items-center">
           <a class="wk-nav-item" href="index.html">Склад</a>
           <a class="wk-nav-item" href="transactions.html">Проводки</a>
           <a class="wk-nav-item" href="reports.html">Отчёты</a>
@@ -35,21 +35,49 @@
           <a class="wk-nav-item" href="tools.html">Инструменты</a>
         </nav>
         
-        <button id="addBtn" class="wk-btn wk-btn-primary">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Добавить объект
-        </button>
+        <div class="wk-flex wk-gap-2 wk-flex-wrap justify-start">
+          <button id="addBtn" class="wk-btn wk-btn-primary wk-btn-sm md:wk-btn">
+            Добавить объект
+          </button>
+          <button id="refreshBtn" class="wk-btn wk-btn-secondary wk-btn-sm md:wk-btn">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+        </div>
       </div>
     </div>
 
-    <div id="loading" class="wk-loading wk-justify-center wk-mb-6 hidden">
-      <span class="wk-loading-spinner"></span>
-      Загрузка объектов...
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row wk-items-center">
+        <label class="wk-flex wk-items-center wk-gap-2">
+          <span class="wk-text-sm wk-font-semibold">Поиск</span>
+          <div class="search-wrap">
+            <input id="locationSearch" class="wk-form-input" placeholder="Объект или город" autocomplete="off">
+          </div>
+        </label>
+        <button id="clearFilter" class="wk-btn wk-btn-secondary wk-btn-sm">Сбросить</button>
+      </div>
     </div>
 
-    <div id="list" class="wk-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 wk-gap-4">
+    <div class="wk-card">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Объекты</h2>
+      </div>
+      <div class="table-container">
+        <table class="wk-table" id="locationsTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="id">ID <span class="sort-arrow" id="sortArrowId">↕</span></th>
+              <th class="sortable" data-sort="name">Название <span class="sort-arrow" id="sortArrowName">↕</span></th>
+              <th class="sortable" data-sort="city">Город <span class="sort-arrow" id="sortArrowCity">↕</span></th>
+              <th class="sortable" data-sort="district">Район <span class="sort-arrow" id="sortArrowDistrict">↕</span></th>
+              <th class="sortable" data-sort="address">Адрес <span class="sort-arrow" id="sortArrowAddress">↕</span></th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
 
     <div id="emptyState" class="empty-state hidden">
@@ -63,8 +91,13 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
   <script>
     let locations = [];
+    let currentSearch = '';
+    let currentSortField = null;
+    let currentSortDir = 'asc';
+    let searchTimeout = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       setupEventListeners();
@@ -75,12 +108,79 @@
       document.getElementById('addBtn').addEventListener('click', openAddModal);
       document.getElementById('addFirstBtn').addEventListener('click', openAddModal);
       document.getElementById('logoutBtn').addEventListener('click', logout);
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        const spinner = document.querySelector('#refreshBtn .wk-loading-spinner');
+        spinner.classList.remove('hidden');
+        load().finally(() => {
+          spinner.classList.add('hidden');
+        });
+      });
+      document.getElementById('clearFilter').addEventListener('click', () => {
+        currentSearch = '';
+        document.getElementById('locationSearch').value = '';
+        load();
+      });
+      document.getElementById('locationSearch').addEventListener('input', handleSearchInput);
+
+      document.querySelectorAll('#locationsTable th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+          const field = th.getAttribute('data-sort');
+          if (currentSortField === field) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSortField = field;
+            currentSortDir = 'asc';
+          }
+          updateSortArrows();
+          load();
+        });
+      });
+
+      document.getElementById('locationsTable').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const action = btn.getAttribute('data-action');
+        if (id && action) {
+          if (action === 'delete') openDeleteModal(id);
+          else if (action === 'edit') openEditLocationModal(id);
+        }
+      });
+    }
+
+    function updateSortArrows() {
+      document.querySelectorAll('#locationsTable th.sortable .sort-arrow').forEach(arrow => {
+        arrow.textContent = '↕';
+      });
+      if (currentSortField) {
+        const arrowId = `sortArrow${currentSortField.charAt(0).toUpperCase() + currentSortField.slice(1)}`;
+        const arrowEl = document.getElementById(arrowId);
+        if (arrowEl) {
+          arrowEl.textContent = currentSortDir === 'asc' ? '▲' : '▼';
+        }
+      }
+    }
+
+    async function handleSearchInput(e) {
+      const v = e.target.value;
+      currentSearch = v;
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => load(), 300);
     }
 
     async function fetchLocations() {
       try {
-        showLoading(true);
-        const response = await authFetch('/api/locations');
+        let url = '/api/locations';
+        const params = new URLSearchParams();
+        if (currentSearch) params.append('search', currentSearch);
+        if (currentSortField) {
+          params.append('sort', currentSortField);
+          params.append('sortDir', currentSortDir);
+        }
+        if (params.toString()) url += '?' + params.toString();
+        
+        const response = await authFetch(url);
         if (!response.ok) {
           throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
         }
@@ -89,121 +189,75 @@
         console.error('Ошибка при загрузке объектов:', error);
         showError('Не удалось загрузить список объектов');
         return [];
-      } finally {
-        showLoading(false);
       }
-    }
-
-    function showLoading(show) {
-      const loadingEl = document.getElementById('loading');
-      const listEl = document.getElementById('list');
-      const emptyStateEl = document.getElementById('emptyState');
-      
-      loadingEl.classList.toggle('hidden', !show);
-      
-      if (show) {
-        listEl.classList.add('hidden');
-        emptyStateEl.classList.add('hidden');
-      }
-    }
-
-    function showError(message) {
-      let errorEl = document.getElementById('errorNotification');
-      if (!errorEl) {
-        errorEl = document.createElement('div');
-        errorEl.id = 'errorNotification';
-        errorEl.className = 'wk-alert wk-alert-error';
-        document.querySelector('.wk-container').prepend(errorEl);
-      }
-      
-      errorEl.textContent = message;
-      
-      setTimeout(() => {
-        if (errorEl && errorEl.parentNode) {
-          errorEl.remove();
-        }
-      }, 5000);
     }
 
     function renderLocations(locationsList) {
-      const root = document.getElementById('list');
+      const tbody = document.querySelector('#locationsTable tbody');
       const emptyStateEl = document.getElementById('emptyState');
-      
+      const tableCard = document.querySelector('.wk-card:has(table)');
+
       const activeLocations = locationsList.filter(location => !location.deleted);
-      
+
       if (activeLocations.length === 0) {
-        root.classList.add('hidden');
+        tbody.innerHTML = '';
+        tableCard.classList.add('hidden');
         emptyStateEl.classList.remove('hidden');
         return;
       }
-      
-      root.classList.remove('hidden');
+
+      tableCard.classList.remove('hidden');
       emptyStateEl.classList.add('hidden');
-      root.innerHTML = '';
-      
+
+      const fragment = document.createDocumentFragment();
       activeLocations.forEach(location => {
-        const div = document.createElement('div');
-        div.className = 'wk-card flex flex-col gap-2';
-        
-        div.innerHTML = `
-          <div class="wk-flex wk-items-center wk-justify-between wk-mb-3">
-            <div class="wk-font-semibold wk-text-lg">${escapeHtml(location.name)}</div>
-            <div class="wk-flex wk-items-center wk-gap-2">
-              <span class="wk-badge wk-badge-primary">#${location.id}</span>
-              <button class="wk-text-muted hover:wk-text-blue-600 edit-location" 
-                      data-id="${location.id}" 
-                      aria-label="Редактировать объект" title="Редактировать">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${escapeHtml(String(location.id))}</td>
+          <td>${escapeHtml(location.name)}</td>
+          <td>${location.city ? escapeHtml(location.city) : '—'}</td>
+          <td>${location.district ? escapeHtml(location.district) : '—'}</td>
+          <td>${location.address ? escapeHtml(location.address) : '—'}</td>
+          <td>
+            <div class="wk-flex wk-gap-2">
+              <button class="wk-btn wk-btn-sm wk-btn-secondary" data-id="${location.id}" data-action="edit" title="Редактировать">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
               </button>
-              <button class="wk-text-muted hover:wk-text-red-600 delete-location" 
-                      data-id="${location.id}" 
-                      aria-label="Удалить объект" title="Удалить">
-                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                 </svg>
-               </button>
+              <button class="wk-btn wk-btn-sm wk-btn-danger" data-id="${location.id}" data-action="delete" title="Удалить">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
             </div>
-          </div>
-          
-          <div class="wk-space-y-2">
-            <div class="wk-flex wk-items-center wk-text-sm wk-text-muted">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 wk-mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span>${location.city ? escapeHtml(location.city) : 'Не указан'}</span>
-            </div>
-            
-            <div class="wk-flex wk-items-center wk-text-sm wk-text-muted">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 wk-mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-4m-6 0H5m2 0h4M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-              <span>${location.district ? escapeHtml(location.district) : 'Не указан'}</span>
-            </div>
-            
-            <div class="wk-flex wk-items-start wk-text-sm wk-text-muted">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 wk-mr-2 wk-mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span>${location.address ? escapeHtml(location.address) : 'Адрес не указан'}</span>
-            </div>
-          </div>
+          </td>
         `;
-        
-        const deleteBtn = div.querySelector('button');
-        const editBtn = div.querySelector('.edit-location');
-        const delBtn = div.querySelector('.delete-location');
-        if (editBtn) editBtn.addEventListener('click', () => openEditLocationModal(location));
-        if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(location));
-        
-        root.appendChild(div);
+        fragment.appendChild(row);
       });
+      tbody.innerHTML = '';
+      tbody.appendChild(fragment);
     }
 
-    function openDeleteModal(location) {
+    function showError(message) {
+      const container = document.getElementById('notificationContainer') || (function(){
+        const c = document.createElement('div');
+        c.id = 'notificationContainer';
+        c.className = 'fixed top-4';
+        document.body.appendChild(c);
+        return c;
+      })();
+      const el = document.createElement('div');
+      el.className = 'wk-alert wk-alert-error';
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => { try { el.remove() } catch(e){} }, 4500);
+    }
+
+    function openDeleteModal(locationId) {
+      const location = locations.find(l => l.id === Number(locationId));
+      if (!location) return;
+
       const modalRoot = document.getElementById('modalRoot');
       modalRoot.innerHTML = `
         <div class="modal">
@@ -220,12 +274,12 @@
           </div>
         </div>
       `;
-      
+
       document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteLocation(location.id));
       document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
         modalRoot.innerHTML = '';
       });
-      
+
       modalRoot.querySelector('.modal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) {
           modalRoot.innerHTML = '';
@@ -235,17 +289,13 @@
 
     async function deleteLocation(id) {
       try {
-        const response = await authFetch(`/api/locations/${id}`, { 
-          method: 'DELETE' 
-        });
-        
+        const response = await authFetch(`/api/locations/${id}`, { method: 'DELETE' });
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
         }
-        
         document.getElementById('modalRoot').innerHTML = '';
-        await load(); 
+        await load();
       } catch (error) {
         console.error('Ошибка удаления:', error);
         showError('Ошибка при удалении: ' + error.message);
@@ -276,10 +326,6 @@
                 <input class="wk-form-input" name="address" placeholder="Введите полный адрес">
               </div>
               <div id="addLocationError" class="wk-alert wk-alert-error hidden"></div>
-              <div id="addLocationSpinner" class="wk-loading hidden">
-                <span class="wk-loading-spinner"></span>
-                Сохранение...
-              </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
                 <button type="button" id="cancelAddBtn" class="wk-btn wk-btn-secondary">Отмена</button>
                 <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
@@ -288,12 +334,12 @@
           </div>
         </div>
       `;
-      
+
       document.getElementById('addLocationForm').addEventListener('submit', handleAddLocation);
       document.getElementById('cancelAddBtn').addEventListener('click', () => {
         modalRoot.innerHTML = '';
       });
-      
+
       modalRoot.querySelector('.modal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) {
           modalRoot.innerHTML = '';
@@ -301,7 +347,10 @@
       });
     }
 
-    function openEditLocationModal(location) {
+    function openEditLocationModal(locationId) {
+      const location = locations.find(l => l.id === Number(locationId));
+      if (!location) return;
+
       const modalRoot = document.getElementById('modalRoot');
       modalRoot.innerHTML = `
         <div class="modal">
@@ -325,96 +374,90 @@
                 <input class="wk-form-input" name="address" value="${location.address ? escapeHtml(location.address) : ''}">
               </div>
               <div class="wk-flex wk-gap-2 wk-justify-between">
-                <button type="button" id="cancelEditLoc" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="button" id="cancelEditBtn" class="wk-btn wk-btn-secondary">Отмена</button>
                 <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
               </div>
             </form>
           </div>
         </div>
-      `
-      document.getElementById('cancelEditLoc').onclick = () => modalRoot.innerHTML = ''
-      document.getElementById('editLocationForm').onsubmit = async (e) => {
-        e.preventDefault()
-        const f = e.target
-        const payload = {
-          name: f.name.value.trim(),
-          city: f.city.value.trim() || null,
-          district: f.district.value.trim() || null,
-          address: f.address.value.trim() || null
-        }
-        try {
-          const resp = await authFetch(`/api/locations/${location.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
-          if (!resp.ok) {
-            const j = await resp.json().catch(()=>({}))
-            throw new Error(j.error || 'Ошибка')
+      `;
+
+      document.getElementById('cancelEditBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+
+      document.getElementById('editLocationForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        await formUtils.disableDuring(form, async () => {
+          const payload = {
+            name: form.name.value.trim(),
+            city: form.city.value.trim() || null,
+            district: form.district.value.trim() || null,
+            address: form.address.value.trim() || null
+          };
+          try {
+            const resp = await authFetch(`/api/locations/${location.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+              const j = await resp.json().catch(() => ({}));
+              throw new Error(j.error || 'Ошибка');
+            }
+            modalRoot.innerHTML = '';
+            await load();
+          } catch (err) {
+            showError('Ошибка при сохранении: ' + (err.message || err));
           }
-          modalRoot.innerHTML = ''
-          await load()
-        } catch (err) {
-          showError('Ошибка при сохранении: ' + (err.message || err))
-        }
-      }
+        }, { text: 'Сохранение...' });
+      });
     }
 
     async function handleAddLocation(e) {
       e.preventDefault();
-      
       const form = e.target;
       const formData = new FormData(form);
       const errorEl = document.getElementById('addLocationError');
-      const spinnerEl = document.getElementById('addLocationSpinner');
-      
+
       errorEl.textContent = '';
       errorEl.classList.add('hidden');
-      spinnerEl.classList.remove('hidden');
-      
-      const submitBtn = form.querySelector('button[type="submit"]');
-      submitBtn.disabled = true;
-      
-      const payload = {
-        name: formData.get('name').trim(),
-        city: formData.get('city').trim() || null,
-        district: formData.get('district').trim() || null,
-        address: formData.get('address').trim() || null
-      };
-      
-      if (!payload.name) {
-        errorEl.textContent = 'Поле "Название" обязательно для заполнения';
-        errorEl.classList.remove('hidden');
-        spinnerEl.classList.add('hidden');
-        submitBtn.disabled = false;
-        return;
-      }
-      
-      try {
-        const response = await authFetch('/api/locations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+
+      await formUtils.disableDuring(form, async () => {
+        const payload = {
+          name: formData.get('name').trim(),
+          city: formData.get('city').trim() || null,
+          district: formData.get('district').trim() || null,
+          address: formData.get('address').trim() || null
+        };
+
+        if (!payload.name) {
+          errorEl.textContent = 'Поле "Название" обязательно для заполнения';
+          errorEl.classList.remove('hidden');
+          return;
         }
-        
-        document.getElementById('modalRoot').innerHTML = '';
-        await load(); 
-        
-      } catch (error) {
-        console.error('Ошибка при добавлении объекта:', error);
-        errorEl.textContent = 'Ошибка при добавлении: ' + error.message;
-        errorEl.classList.remove('hidden');
-      } finally {
-        spinnerEl.classList.add('hidden');
-        submitBtn.disabled = false;
-      }
+
+        try {
+          const response = await authFetch('/api/locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+          }
+
+          document.getElementById('modalRoot').innerHTML = '';
+          await load();
+        } catch (error) {
+          console.error('Ошибка при добавлении объекта:', error);
+          errorEl.textContent = 'Ошибка при добавлении: ' + error.message;
+          errorEl.classList.remove('hidden');
+        }
+      }, { text: 'Сохранение...' });
     }
 
     async function load() {

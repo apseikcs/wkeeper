@@ -1,83 +1,86 @@
-const TOKEN_KEY = 'warehouse_token';
+(function () {
+  const STORAGE_KEY = 'wk_token'
+  let currentUser = null
 
-function getToken() {
-  try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
-}
-function setToken(token) {
-  try { localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
-}
-function logout() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
-  window.location.href = '/login.html';
-}
-
-function resolveUrl(url) {
-  try {
-    if (!url && url !== '') return url;
-    if (typeof Request !== 'undefined' && url instanceof Request) return url.url;
-    const s = typeof url === 'string' ? url : String(url);
-    if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    if (s.startsWith('/')) return window.location.origin + s;
-    return window.location.origin + '/' + s;
-  } catch (e) {
-    console.error('resolveUrl error', e, url);
-    return url;
+  function setToken(token) {
+    if (token) localStorage.setItem(STORAGE_KEY, token)
+    else localStorage.removeItem(STORAGE_KEY)
   }
-}
 
-async function login(username, password) {
-  const resp = await fetch(resolveUrl('/api/login'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  });
-  if (resp.ok) {
-    const j = await resp.json().catch(() => ({}));
-    if (j.token) setToken(j.token);
-    return resp.ok;
+  function getToken() {
+    return localStorage.getItem(STORAGE_KEY) || null
   }
-  return false;
-}
 
-async function authFetch(url, options = {}) {
-  try {
-    const token = getToken();
-    if (!token) {
-      return Promise.reject(new Error('no token'));
+  async function authFetch(input, init = {}) {
+    const token = getToken()
+    const headers = new Headers(init.headers || {})
+    if (token) headers.set('Authorization', 'Bearer ' + token)
+    const opts = Object.assign({}, init, { headers })
+
+    const res = await fetch(input, opts)
+
+    if (res.status === 401 || res.status === 403) {
+      removeLocalAuth()
+      try {
+        if (!window.location.pathname.endsWith('/login.html')) {
+          window.location.href = '/login.html'
+        }
+      } catch (e) { }
+      throw new Error('Unauthorized')
     }
 
-    const fullUrl = resolveUrl(url);
+    return res
+  }
 
-    let headersObj = {};
+  async function login(username, password) {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    if (!res.ok) {
+      const j = await res.json().catch(()=>({}))
+      throw new Error(j.error || 'login failed')
+    }
+    const data = await res.json()
+    if (!data || !data.token) throw new Error('no token returned')
+    setToken(data.token)
+    currentUser = null
+    return data.token
+  }
+
+  async function getCurrentUser(force = false) {
+    if (!force && currentUser) return currentUser
+    const token = getToken()
+    if (!token) return null
     try {
-      if (typeof Headers !== 'undefined' && options.headers instanceof Headers) {
-        options.headers.forEach((v, k) => headersObj[k] = v);
-      } else if (options.headers && typeof options.headers === 'object') {
-        headersObj = { ...options.headers };
-      }
-    } catch (hdrErr) {
-      headersObj = {};
+      const res = await authFetch('/api/me')
+      if (!res.ok) return null
+      currentUser = await res.json()
+      return currentUser
+    } catch (e) {
+      return null
     }
-
-    headersObj['Authorization'] = `Bearer ${token}`;
-
-    const init = { ...options, headers: headersObj };
-    const response = await fetch(fullUrl, init);
-
-    if (response.status === 401 || response.status === 403) {
-      logout();
-      return Promise.reject(new Error('unauthorized'));
-    }
-
-    return response;
-  } catch (err) {
-    console.error('Network / authFetch error:', err);
-    return Promise.reject(err);
   }
-}
 
-window.authFetch = authFetch;
-window.logout = logout;
-window.login = login;
-window.getToken = getToken;
+  function removeLocalAuth() {
+    setToken(null)
+    currentUser = null
+  }
+
+  function logout(redirect = true) {
+    removeLocalAuth()
+    if (redirect) {
+      try { window.location.href = '/' } catch (e) {}
+    }
+  }
+
+  // expose to global scope used by pages
+  window.authFetch = authFetch
+  window.login = login
+  window.logout = logout
+  window.getCurrentUser = getCurrentUser
+  window.getToken = getToken
+  window._wk_setToken = setToken
+})()
 

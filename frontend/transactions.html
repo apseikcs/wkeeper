@@ -81,6 +81,7 @@
               <th>Поставщик</th>
               <th>Объект</th>
               <th>Работник</th>
+              <th>Автор</th>
               <th>Примечание</th>
             </tr>
           </thead>
@@ -91,6 +92,7 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
   <script>
     const formatDate = date => {
       try {
@@ -109,10 +111,15 @@
     let currentSort = 'date_desc'
     let currentEntity = null
     let currentSearch = ''
+    let currentPage = 1
+    let pageSize = 50
+    let totalPages = 1
 
     async function fetchTransactions() {
       const params = new URLSearchParams()
       params.set('sort', currentSort)
+      params.set('page', String(currentPage))
+      params.set('limit', String(pageSize))
       if (currentEntity) { 
         params.set('entityType', currentEntity.type); 
         params.set('entityId', String(currentEntity.id)) 
@@ -120,7 +127,17 @@
       if (currentSearch) params.set('search', currentSearch)
       
       const res = await authFetch('/api/transactions?' + params.toString())
-      return res.json()
+      const data = await res.json()
+      
+      // Handle both paginated and direct array responses
+      if (data.items && data.page && data.limit) {
+        totalPages = Math.ceil(data.total / data.limit)
+        return data
+      } else {
+        const items = formUtils.extractItems(data)
+        totalPages = Math.ceil(items.length / pageSize)
+        return { items, page: currentPage, limit: pageSize, total: items.length }
+      }
     }
 
     function render(rows) {
@@ -200,6 +217,7 @@
           <td>${r.supplier ? r.supplier.name : (r.supplierName || '')}</td>
           <td>${r.destination ? r.destination.name : (r.destinationName || '')}</td>
           <td>${r.worker ? r.worker.fullName : ''}</td>
+          <td>${r.authorUsername ? `@${escapeHtml(r.authorUsername)}` : '—'}</td>
           <td contenteditable data-id="${r.id}" class="note-cell">${r.note || ''}</td>`
         tbody.appendChild(tr)
       })
@@ -212,10 +230,33 @@
       try {
         const data = await fetchTransactions()
         render(data)
+        renderPaginationControls()
       } catch (error) {
         console.error('Ошибка загрузки проводок:', error)
       } finally {
         spinner.classList.add('hidden');
+      }
+    }
+
+    function renderPaginationControls() {
+      let bottomPagination = document.getElementById('pagination-bottom');
+      if (!bottomPagination) {
+        bottomPagination = document.createElement('div');
+        bottomPagination.id = 'pagination-bottom';
+        const tableCard = document.querySelector('.wk-card:has(#transactionsTable)');
+        if (tableCard) tableCard.appendChild(bottomPagination);
+      } else {
+        bottomPagination.innerHTML = '';
+      }
+      
+      if (bottomPagination.parentElement) {
+        bottomPagination.appendChild(formUtils.createPaginationControls({
+          currentPage,
+          totalPages,
+          onPageChange: (page) => { currentPage = page; load(); },
+          position: 'bottom-center',
+          id: 'pagination-bottom-controls'
+        }));
       }
     }
 
@@ -253,6 +294,7 @@
       document.getElementById('clearFilter').addEventListener('click', () => {
         currentEntity = null
         currentSearch = ''
+        currentPage = 1
         document.getElementById('unifiedSearch').value = ''
         document.getElementById('searchDropdown').style.display = 'none'
         load()
@@ -266,6 +308,7 @@
         const v = e.target.value
         currentSearch = v
         currentEntity = null
+        currentPage = 1
         
         if (searchTimeout) clearTimeout(searchTimeout)
         
@@ -294,12 +337,12 @@
             else if (it.type === 'worker') typeDisplay = 'работник';
             
             el.textContent = it.name + ' [' + typeDisplay + ']' 
-            el.onclick = () => {
+            el.addEventListener('click', () => {
               currentEntity = { type: it.type, id: it.id }
               inputEl.value = it.name
               dd.style.display = 'none'
               load()
-            }
+            })
             dd.appendChild(el)
           })
           dd.style.display = 'block'
