@@ -129,7 +129,6 @@
       const res = await authFetch('/api/transactions?' + params.toString())
       const data = await res.json()
       
-      // Handle both paginated and direct array responses
       if (data.items && data.page && data.limit) {
         totalPages = Math.ceil(data.total / data.limit)
         return data
@@ -232,7 +231,7 @@
         render(data)
         renderPaginationControls()
       } catch (error) {
-        console.error('Ошибка загрузки проводок:', error)
+        console.error('Ошибка при загрузке проводок:', error)
       } finally {
         spinner.classList.add('hidden');
       }
