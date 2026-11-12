@@ -1,0 +1,41 @@
+{
+  "name": "warehouse-keeper",
+  "version": "0.9.6",
+  "private": true,
+  "scripts": {
+    "dev": "prisma generate && ts-node-dev src/server.ts",
+    "build": "prisma generate && tsc --skipLibCheck",
+    "start": "node dist/server.js",
+    "vercel-build": "prisma generate && tsc --skipLibCheck",
+    "seed": "ts-node prisma/seed.ts",
+    "test": "vitest run",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.15.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "handlebars": "^4.7.8",
+    "jsonwebtoken": "^9.0.2",
+    "pdfkit": "^0.17.2",
+    "pdfmake": "^0.2.20"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^3.2.4",
+    "jsdom": "^28.1.0",
+    "prisma": "^6.15.0",
+    "supertest": "^7.1.1",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.1.6",
+    "vitest": "^3.2.4"
+  }
+}

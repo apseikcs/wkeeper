@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Объекты</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+  <link rel="stylesheet" href="styles/pages/destinations.css">
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header flex flex-row justify-between">
+      <div>
+        <h1 class="wk-page-title">Объекты</h1>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-4 md:wk-flex-row wk-justify-between flex-wrap">
+        <nav class="wk-nav grow-1 items-center">
+          <a class="wk-nav-item" href="index">Склад</a>
+          <a class="wk-nav-item" href="transactions">Проводки</a>
+          <a class="wk-nav-item" href="reports">Отчёты</a>
+          <a class="wk-nav-item" href="workers">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers">Поставщики</a>
+          <a class="wk-nav-item active" href="destinations">Объекты</a>
+          <a class="wk-nav-item" href="tools">Инструменты</a>
+        </nav>
+        
+        <div class="wk-flex wk-gap-2 wk-flex-wrap justify-start">
+          <button id="addBtn" class="wk-btn wk-btn-primary wk-btn-sm md:wk-btn">
+            Добавить объект
+          </button>
+          <button id="refreshBtn" class="wk-btn wk-btn-secondary wk-btn-sm md:wk-btn">
+            <span class="wk-loading-spinner hidden"></span>
+            Обновить
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col wk-gap-3 md:wk-flex-row wk-items-center">
+        <label class="wk-flex wk-items-center wk-gap-2">
+          <span class="wk-text-sm wk-font-semibold">Поиск</span>
+          <div class="search-wrap">
+            <input id="locationSearch" class="wk-form-input" placeholder="Объект или город" autocomplete="off">
+          </div>
+        </label>
+        <button id="clearFilter" class="wk-btn wk-btn-secondary wk-btn-sm">Сбросить</button>
+      </div>
+    </div>
+
+    <div class="wk-card">
+      <div class="wk-card-header">
+        <h2 class="wk-card-title">Объекты</h2>
+      </div>
+      <div class="table-container">
+        <table class="wk-table" id="locationsTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="id">ID <span class="sort-arrow" id="sortArrowId">↕</span></th>
+              <th class="sortable" data-sort="name">Название <span class="sort-arrow" id="sortArrowName">↕</span></th>
+              <th class="sortable" data-sort="city">Город <span class="sort-arrow" id="sortArrowCity">↕</span></th>
+              <th class="sortable" data-sort="district">Район <span class="sort-arrow" id="sortArrowDistrict">↕</span></th>
+              <th class="sortable" data-sort="address">Адрес <span class="sort-arrow" id="sortArrowAddress">↕</span></th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="emptyState" class="empty-state hidden">
+      <div class="empty-state-icon">🏢</div>
+      <h3 class="wk-text-lg wk-font-semibold wk-mb-2">Нет объектов</h3>
+      <p class="wk-text-muted wk-mb-4">Добавьте первый объект, нажав на кнопку выше</p>
+      <button id="addFirstBtn" class="wk-btn wk-btn-primary">Добавить объект</button>
+    </div>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="js/form-utils.js"></script>
+  <script>
+    let locations = [];
+    let currentSearch = '';
+    let currentSortField = null;
+    let currentSortDir = 'asc';
+    let searchTimeout = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      load();
+    });
+
+    function setupEventListeners() {
+      document.getElementById('addBtn').addEventListener('click', openAddModal);
+      document.getElementById('addFirstBtn').addEventListener('click', openAddModal);
+      document.getElementById('logoutBtn').addEventListener('click', logout);
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        const spinner = document.querySelector('#refreshBtn .wk-loading-spinner');
+        spinner.classList.remove('hidden');
+        load().finally(() => {
+          spinner.classList.add('hidden');
+        });
+      });
+      document.getElementById('clearFilter').addEventListener('click', () => {
+        currentSearch = '';
+        document.getElementById('locationSearch').value = '';
+        load();
+      });
+      document.getElementById('locationSearch').addEventListener('input', handleSearchInput);
+
+      document.querySelectorAll('#locationsTable th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+          const field = th.getAttribute('data-sort');
+          if (currentSortField === field) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSortField = field;
+            currentSortDir = 'asc';
+          }
+          updateSortArrows();
+          load();
+        });
+      });
+
+      document.getElementById('locationsTable').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const action = btn.getAttribute('data-action');
+        if (id && action) {
+          if (action === 'delete') openDeleteModal(id);
+          else if (action === 'edit') openEditLocationModal(id);
+        }
+      });
+    }
+
+    function updateSortArrows() {
+      document.querySelectorAll('#locationsTable th.sortable .sort-arrow').forEach(arrow => {
+        arrow.textContent = '↕';
+      });
+      if (currentSortField) {
+        const arrowId = `sortArrow${currentSortField.charAt(0).toUpperCase() + currentSortField.slice(1)}`;
+        const arrowEl = document.getElementById(arrowId);
+        if (arrowEl) {
+          arrowEl.textContent = currentSortDir === 'asc' ? '▲' : '▼';
+        }
+      }
+    }
+
+    async function handleSearchInput(e) {
+      const v = e.target.value;
+      currentSearch = v;
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => load(), 300);
+    }
+
+    async function fetchLocations() {
+      try {
+        let url = '/api/locations';
+        const params = new URLSearchParams();
+        if (currentSearch) params.append('search', currentSearch);
+        if (currentSortField) {
+          params.append('sort', currentSortField);
+          params.append('sortDir', currentSortDir);
+        }
+        if (params.toString()) url += '?' + params.toString();
+        
+        const response = await authFetch(url);
+        if (!response.ok) {
+          throw new Error(`Ошибка HTTP! Статус: ${response.status}`);
+        }
+        return await response.json();
+      } catch (error) {
+        console.error('Ошибка при загрузке объектов:', error);
+        showError('Не удалось загрузить список объектов');
+        return [];
+      }
+    }
+
+    function renderLocations(locationsList) {
+      const tbody = document.querySelector('#locationsTable tbody');
+      const emptyStateEl = document.getElementById('emptyState');
+      const tableCard = document.querySelector('.wk-card:has(table)');
+
+      const activeLocations = locationsList.filter(location => !location.deleted);
+
+      if (activeLocations.length === 0) {
+        tbody.innerHTML = '';
+        tableCard.classList.add('hidden');
+        emptyStateEl.classList.remove('hidden');
+        return;
+      }
+
+      tableCard.classList.remove('hidden');
+      emptyStateEl.classList.add('hidden');
+
+      const fragment = document.createDocumentFragment();
+      activeLocations.forEach(location => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${escapeHtml(String(location.id))}</td>
+          <td>${escapeHtml(location.name)}</td>
+          <td>${location.city ? escapeHtml(location.city) : '—'}</td>
+          <td>${location.district ? escapeHtml(location.district) : '—'}</td>
+          <td>${location.address ? escapeHtml(location.address) : '—'}</td>
+          <td>
+            <div class="wk-flex wk-gap-2">
+              <button class="wk-btn wk-btn-sm wk-btn-secondary" data-id="${location.id}" data-action="edit" title="Редактировать">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+              <button class="wk-btn wk-btn-sm wk-btn-danger" data-id="${location.id}" data-action="delete" title="Удалить">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </td>
+        `;
+        fragment.appendChild(row);
+      });
+      tbody.innerHTML = '';
+      tbody.appendChild(fragment);
+    }
+
+    function showError(message) {
+      const container = document.getElementById('notificationContainer') || (function(){
+        const c = document.createElement('div');
+        c.id = 'notificationContainer';
+        c.className = 'fixed top-4';
+        document.body.appendChild(c);
+        return c;
+      })();
+      const el = document.createElement('div');
+      el.className = 'wk-alert wk-alert-error';
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => { try { el.remove() } catch(e){} }, 4500);
+    }
+
+    function openDeleteModal(locationId) {
+      const location = locations.find(l => l.id === Number(locationId));
+      if (!location) return;
+
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Подтверждение удаления</h3>
+            <p class="wk-text-muted wk-mb-6">
+              Вы уверены, что хотите удалить объект <strong>${escapeHtml(location.name)}</strong>? 
+              Объект будет помечен как удалённый, а история проводок сохранится.
+            </p>
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteLocation(location.id));
+      document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    async function deleteLocation(id) {
+      try {
+        const response = await authFetch(`/api/locations/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+        }
+        document.getElementById('modalRoot').innerHTML = '';
+        await load();
+      } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showError('Ошибка при удалении: ' + error.message);
+      }
+    }
+
+    function openAddModal() {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Добавить объект</h3>
+            <form id="addLocationForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название *</label>
+                <input class="wk-form-input" name="name" required placeholder="Введите название объекта">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Город</label>
+                <input class="wk-form-input" name="city" placeholder="Введите город">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Район</label>
+                <input class="wk-form-input" name="district" placeholder="Введите район">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Адрес</label>
+                <input class="wk-form-input" name="address" placeholder="Введите полный адрес">
+              </div>
+              <div id="addLocationError" class="wk-alert wk-alert-error hidden"></div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelAddBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('addLocationForm').addEventListener('submit', handleAddLocation);
+      document.getElementById('cancelAddBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+
+      modalRoot.querySelector('.modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+          modalRoot.innerHTML = '';
+        }
+      });
+    }
+
+    function openEditLocationModal(locationId) {
+      const location = locations.find(l => l.id === Number(locationId));
+      if (!location) return;
+
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Редактировать объект</h3>
+            <form id="editLocationForm">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Название *</label>
+                <input class="wk-form-input" name="name" required value="${escapeHtml(location.name)}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Город</label>
+                <input class="wk-form-input" name="city" value="${location.city ? escapeHtml(location.city) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Район</label>
+                <input class="wk-form-input" name="district" value="${location.district ? escapeHtml(location.district) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Адрес</label>
+                <input class="wk-form-input" name="address" value="${location.address ? escapeHtml(location.address) : ''}">
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelEditBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('cancelEditBtn').addEventListener('click', () => {
+        modalRoot.innerHTML = '';
+      });
+
+      document.getElementById('editLocationForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        await formUtils.disableDuring(form, async () => {
+          const payload = {
+            name: form.name.value.trim(),
+            city: form.city.value.trim() || null,
+            district: form.district.value.trim() || null,
+            address: form.address.value.trim() || null
+          };
+          try {
+            const resp = await authFetch(`/api/locations/${location.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+              const j = await resp.json().catch(() => ({}));
+              throw new Error(j.error || 'Ошибка');
+            }
+            modalRoot.innerHTML = '';
+            await load();
+          } catch (err) {
+            showError('Ошибка при сохранении: ' + (err.message || err));
+          }
+        }, { text: 'Сохранение...' });
+      });
+    }
+
+    async function handleAddLocation(e) {
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData(form);
+      const errorEl = document.getElementById('addLocationError');
+
+      errorEl.textContent = '';
+      errorEl.classList.add('hidden');
+
+      await formUtils.disableDuring(form, async () => {
+        const payload = {
+          name: formData.get('name').trim(),
+          city: formData.get('city').trim() || null,
+          district: formData.get('district').trim() || null,
+          address: formData.get('address').trim() || null
+        };
+
+        if (!payload.name) {
+          errorEl.textContent = 'Поле "Название" обязательно для заполнения';
+          errorEl.classList.remove('hidden');
+          return;
+        }
+
+        try {
+          const response = await authFetch('/api/locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Ошибка сервера: ${response.status}`);
+          }
+
+          document.getElementById('modalRoot').innerHTML = '';
+          await load();
+        } catch (error) {
+          console.error('Ошибка при добавлении объекта:', error);
+          errorEl.textContent = 'Ошибка при добавлении: ' + error.message;
+          errorEl.classList.remove('hidden');
+        }
+      }, { text: 'Сохранение...' });
+    }
+
+    async function load() {
+      locations = await fetchLocations();
+      renderLocations(locations);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

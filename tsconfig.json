@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "noImplicitAny": false,
+    "noEmitOnError": false
+  },
+  "include": ["src", "prisma"]
+}
+

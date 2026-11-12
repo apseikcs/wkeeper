@@ -1,0 +1,9 @@
+.modal { position: fixed; left:0; top:0; right:0; bottom:0; background: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:50; padding: var(--space-4); }
+.modal-card { background:white; border-radius: var(--radius-lg); padding: var(--space-6); width:100%; max-width:420px; max-height:90vh; overflow-y:auto; box-shadow: var(--shadow-lg); }
+
+.table-container { overflow-x:auto; margin-bottom: var(--space-6); }
+
+.empty-state { text-align:center; padding: var(--space-10) var(--space-4); color: rgb(var(--color-gray-500)); }
+.empty-state-icon { font-size: 3rem; margin-bottom: var(--space-4); opacity:0.5; }
+
+.hidden { display:none; }

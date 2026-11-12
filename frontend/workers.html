@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сотрудники</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles/ui-kit.css">
+</head>
+<body class="wk-base wk-p-4 md:wk-p-6">
+  <div class="wk-container">
+    
+    <header class="wk-page-header">
+      <div>
+        <h1 class="wk-page-title">Сотрудники</h1>
+      </div>
+      <button id="logoutBtn" class="wk-btn wk-btn-outline wk-flex wk-items-center wk-gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Выйти
+      </button>
+    </header>
+
+    <div class="wk-card wk-mb-4">
+      <div class="wk-flex wk-flex-col flex-wrap wk-gap-4">
+        <nav class="wk-nav">
+          <a class="wk-nav-item" href="index">Склад</a>
+          <a class="wk-nav-item" href="transactions">Проводки</a>
+          <a class="wk-nav-item" href="reports">Отчёты</a>
+          <a class="wk-nav-item active" href="workers">Сотрудники</a>
+          <a class="wk-nav-item" href="suppliers">Поставщики</a>
+          <a class="wk-nav-item" href="destinations">Объекты</a>
+          <a class="wk-nav-item" href="tools">Инструменты</a>
+        </nav>
+        
+        <button id="addBtn" class="wk-btn wk-btn-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          Добавить сотрудника
+        </button>
+      </div>
+    </div>
+
+    <div id="workersGrid" class="wk-grid wk-grid-cols-1 wk-grid-cols-sm-2 wk-grid-cols-md-3 wk-grid-cols-lg-4 wk-gap-4">
+    </div>
+
+    <div id="emptyState" class="wk-card empty-state hidden">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+      <h3 class="text-lg font-medium text-gray-700 mb-2">Нет сотрудников</h3>
+      <p class="text-gray-500 mb-4">Добавьте первого сотрудника, нажав на кнопку выше</p>
+      <button id="addFirstBtn" class="wk-btn wk-btn-primary">Добавить сотрудника</button>
+    </div>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script>
+    let workers = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setupEventListeners();
+      load();
+    });
+
+    function setupEventListeners() {
+      document.getElementById('addBtn').addEventListener('click', openAddModal);
+      document.getElementById('addFirstBtn').addEventListener('click', openAddModal);
+      document.getElementById('logoutBtn').addEventListener('click', logout);
+    }
+
+    async function fetchWorkers() {
+      try {
+        const response = await authFetch('/api/workers');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+      } catch (error) {
+        console.error('Ошибка загрузки:', error);
+        showError('Не удалось загрузить список сотрудников');
+        return [];
+      }
+    }
+
+    function showError(message) {
+      let errorEl = document.getElementById('errorNotification');
+      if (!errorEl) {
+        errorEl = document.createElement('div');
+        errorEl.id = 'errorNotification';
+        errorEl.className = 'fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50';
+        errorEl.style.maxWidth = '320px';
+        document.body.appendChild(errorEl);
+      }
+      
+      errorEl.innerHTML = `
+        <div class="flex justify-between items-start">
+          <div class="flex-1">
+            <strong class="font-bold">Ошибка! </strong>
+            <span>${escapeHtml(message)}</span>
+          </div>
+          <button type="button" class="ml-4 text-red-700 hover:text-red-900 delete-supplier-btn">
+            <span class="text-xl">&times;</span>
+          </button>
+        </div>
+      `;
+      
+      setTimeout(() => { if (errorEl && errorEl.parentNode) errorEl.remove(); }, 5000);
+    }
+
+    function renderWorkers(workersList) {
+      const grid = document.getElementById('workersGrid');
+      const emptyState = document.getElementById('emptyState');
+      
+      const activeWorkers = workersList.filter(w => !w.deleted);
+      
+      if (activeWorkers.length === 0) {
+        grid.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      
+      grid.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+      grid.innerHTML = '';
+      
+      activeWorkers.forEach(worker => {
+        // Filter only active assignments (not returned)
+        const activeAssignments = (worker.assignments || []).filter(a => !a.returnedAt && a.tool && !a.tool.deleted);
+        
+        const card = document.createElement('div');
+        card.className = 'wk-card worker-card flex flex-col gap-2';
+        card.innerHTML = `
+          <div class="worker-card__header text-xl font-semibold">
+            <h3 class="worker-card__name">${escapeHtml(worker.fullName)}</h3>
+            <div class="wk-flex wk-items-center gap-2 mt-2 mb-2">
+              <span class="wk-badge wk-badge-primary">#${worker.id}</span>
+              <button class="text-gray-400 hover:text-blue-500 transition-colors edit-worker" 
+                      data-id="${worker.id}" aria-label="Редактировать сотрудника" title="Редактировать">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              </button>
+              <button class="text-gray-400 hover:text-red-500 transition-colors delete-worker" 
+                      data-id="${worker.id}" aria-label="Удалить сотрудника" title="Удалить">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                 </svg>
+               </button>
+            </div>
+          </div>
+          
+          <div class="worker-card__meta">
+            <div>
+              <span class="wk-text-muted">Телефон:</span> 
+              ${worker.phone ? escapeHtml(worker.phone) : '—'}
+            </div>
+            <div>
+              <span class="wk-text-muted">Должность:</span> 
+              ${worker.position ? escapeHtml(worker.position) : '—'}
+            </div>
+          </div>
+          
+          <div class="worker-card__tools">
+            <div class="wk-font-semibold wk-text-sm wk-mb-2">Инструменты (${activeAssignments.length}):</div>
+            ${activeAssignments.length > 0 ? `
+              <ul class="wk-space-y-1 flex flex-col gap-2">
+                ${activeAssignments.map(assignment => `
+                  <li class="wk-flex wk-items-center wk-justify-between wk-gap-2 wk-text-sm wk-p-2 wk-bg-gray-50 wk-rounded">
+                    <span class="text-base">
+                      ${escapeHtml(assignment.tool.name)}
+                      ${assignment.quantity > 1 ? ` <span class="text-gray-500">(${assignment.quantity})</span>` : ''}
+                    </span>
+                    <button class="wk-btn wk-btn-danger wk-btn-xs unassign-tool-btn p-2" 
+                            data-worker="${worker.id}" 
+                            data-tool="${assignment.tool.id}"
+                            data-tool-name="${escapeHtml(assignment.tool.name)}">
+                      ✕
+                    </button>
+                  </li>
+                `).join('')}
+              </ul>
+            ` : '<div class="wk-text-sm wk-text-gray-400">Не назначено</div>'}
+          </div>
+          
+          <div class="worker-card__actions">
+            <button class="wk-btn wk-btn-primary wk-btn-sm assign-btn pt-2 pb-2 pl-1 pr-1" data-worker="${worker.id}">
+              + Выдать инструмент
+            </button>
+          </div>
+        `;
+        
+        const editBtn = card.querySelector('.edit-worker');
+        const delBtn = card.querySelector('.delete-worker');
+        if (editBtn) editBtn.addEventListener('click', () => openEditWorkerModal(worker));
+        if (delBtn) delBtn.addEventListener('click', () => openDeleteModal(worker));
+        
+        const assignBtn = card.querySelector('.assign-btn');
+        if (assignBtn) assignBtn.addEventListener('click', () => openAssignModal(worker));
+        
+        card.querySelectorAll('.unassign-tool-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const wid = Number(btn.getAttribute('data-worker'));
+            const tid = Number(btn.getAttribute('data-tool'));
+            const toolName = btn.getAttribute('data-tool-name');
+            openUnassignModal(wid, tid, worker.fullName, toolName);
+          });
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    async function openAssignModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      const allTools = await authFetch('/api/tools').then(r => r.json());
+      // Filter: not deleted and has available quantity
+      const available = (allTools || []).filter(t => !t.deleted && t.availableQuantity > 0);
+
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Выдать инструмент</h3>
+            <p class="wk-text-muted wk-mb-4">Выберите инструмент для сотрудника: <strong>${escapeHtml(worker.fullName)}</strong></p>
+            
+            <form id="assignForm" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Инструмент</label>
+                <select class="wk-form-input" name="toolId" required>
+                  <option value="">-- Выберите инструмент --</option>
+                  ${available.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.availableQuantity} доступно)</option>`).join('')}
+                </select>
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="quantity" min="1" value="1" required>
+              </div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelAssign" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Выдать</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelAssign').addEventListener('click', () => modalRoot.innerHTML = '');
+      
+      document.getElementById('assignForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const toolId = Number(form.toolId.value);
+        const quantity = Number(form.quantity.value);
+        
+        if (!toolId) {
+          showError('Выберите инструмент');
+          return;
+        }
+        
+        if (!quantity || quantity < 1) {
+          showError('Укажите корректное количество');
+          return;
+        }
+        
+        try {
+          const resp = await authFetch(`/api/workers/${worker.id}/assignTool/${toolId}`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity })
+          });
+          
+          if (!resp.ok) {
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Ошибка сервера');
+          }
+          
+          modalRoot.innerHTML = '';
+          await load();
+        } catch (err) {
+          showError('Ошибка при выдаче инструмента: ' + (err.message || err));
+        }
+      });
+    }
+
+    function openUnassignModal(workerId, toolId, workerName, toolName) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      // Find the assignment to get current quantity
+      const worker = workers.find(w => w.id === workerId);
+      const assignment = worker?.assignments?.find(a => a.tool.id === toolId && !a.returnedAt);
+      const currentQuantity = assignment?.quantity || 1;
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Вернуть инструмент</h3>
+            <p class="wk-text-muted wk-mb-4">
+              Сотрудник <strong>${escapeHtml(workerName)}</strong> возвращает инструмент <strong>${escapeHtml(toolName)}</strong>
+            </p>
+            
+            <form id="unassignForm" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">Количество</label>
+                <input type="number" class="wk-form-input" name="quantity" min="1" max="${currentQuantity}" value="${currentQuantity}" required>
+                <small class="text-gray-500">Выдано: ${currentQuantity}</small>
+              </div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelUnassign" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-danger">Забрать</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('cancelUnassign').addEventListener('click', () => modalRoot.innerHTML = '');
+      document.getElementById('unassignForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const quantity = Number(form.quantity.value);
+        unassignTool(workerId, toolId, quantity);
+        modalRoot.innerHTML = '';
+      });
+    }
+
+    async function unassignTool(workerId, toolId, quantity = null) {
+      try {
+        const payload = quantity ? { quantity } : {};
+        const resp = await authFetch(`/api/workers/${workerId}/unassignTool/${toolId}`, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!resp.ok) {
+          const j = await resp.json().catch(() => ({}));
+          throw new Error(j.error || 'Ошибка сервера');
+        }
+        
+        await load();
+      } catch (err) {
+        showError('Ошибка при возврате инструмента: ' + (err.message || err));
+      }
+    }
+
+    function openDeleteModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Удалить сотрудника?</h3>
+            <p class="wk-text-muted wk-mb-4">
+              Вы уверены, что хотите удалить сотрудника <strong>${escapeHtml(worker.fullName)}</strong>? 
+              Сотрудник будет помечен как удаленный. История проводок сохранится.
+            </p>
+            
+            <div class="wk-flex wk-gap-2 wk-justify-between">
+              <button type="button" id="cancelDeleteBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+              <button type="button" id="confirmDeleteBtn" class="wk-btn wk-btn-danger">Удалить</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('confirmDeleteBtn').addEventListener('click', () => deleteWorker(worker.id));
+      document.getElementById('cancelDeleteBtn').addEventListener('click', () => { modalRoot.innerHTML = ''; });
+    }
+
+    async function deleteWorker(id) {
+      try {
+        const response = await authFetch(`/api/workers/${id}`, { method: 'DELETE' });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка: ${response.status}`);
+        }
+        
+        document.getElementById('modalRoot').innerHTML = '';
+        await load();
+      } catch (error) {
+        console.error('Ошибка:', error);
+        showError('Ошибка при удалении: ' + error.message);
+      }
+    }
+
+    function openAddModal() {
+      const modalRoot = document.getElementById('modalRoot');
+      
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Добавить сотрудника</h3>
+            
+            <form id="addWorkerForm" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">ФИО *</label>
+                <input class="wk-form-input" name="fullName" required placeholder="Иванов Иван Иванович">
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Телефон</label>
+                <input class="wk-form-input" name="phone" placeholder="+7-900-000-00-00">
+              </div>
+              
+              <div class="wk-form-group">
+                <label class="wk-form-label">Должность</label>
+                <input class="wk-form-input" name="position" placeholder="Электрик">
+              </div>
+              
+              <div id="addError" class="wk-alert wk-alert-error hidden"></div>
+              
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelAddBtn" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('addWorkerForm').addEventListener('submit', handleAddWorker);
+      document.getElementById('cancelAddBtn').addEventListener('click', () => { modalRoot.innerHTML = ''; });
+    }
+
+    function openEditWorkerModal(worker) {
+      const modalRoot = document.getElementById('modalRoot');
+      modalRoot.innerHTML = `
+        <div class="modal">
+          <div class="modal-card">
+            <h3 class="wk-card-title wk-mb-4">Редактировать сотрудника</h3>
+            <form id="editWorkerForm" onsubmit="return false">
+              <div class="wk-form-group">
+                <label class="wk-form-label">ФИО *</label>
+                <input class="wk-form-input" name="fullName" required value="${escapeHtml(worker.fullName)}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Телефон</label>
+                <input class="wk-form-input" name="phone" value="${worker.phone ? escapeHtml(worker.phone) : ''}">
+              </div>
+              <div class="wk-form-group">
+                <label class="wk-form-label">Должность</label>
+                <input class="wk-form-input" name="position" value="${worker.position ? escapeHtml(worker.position) : ''}">
+              </div>
+              <div class="wk-flex wk-gap-2 wk-justify-between">
+                <button type="button" id="cancelEditWorker" class="wk-btn wk-btn-secondary">Отмена</button>
+                <button type="submit" class="wk-btn wk-btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      document.getElementById('cancelEditWorker').addEventListener('click', () => modalRoot.innerHTML = '');
+      document.getElementById('editWorkerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const payload = {
+          fullName: f.fullName.value.trim(),
+          phone: f.phone.value.trim() || null,
+          position: f.position.value.trim() || null
+        };
+        try {
+          const resp = await authFetch(`/api/workers/${worker.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!resp.ok) {
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Ошибка');
+          }
+          modalRoot.innerHTML = '';
+          await load();
+        } catch (err) {
+          showError('Ошибка при сохранении: ' + (err.message || err));
+        }
+      });
+    }
+
+    async function handleAddWorker(e) {
+      e.preventDefault();
+      
+      const form = e.target;
+      const formData = new FormData(form);
+      const errorEl = document.getElementById('addError');
+      
+      const payload = {
+        fullName: formData.get('fullName').trim(),
+        phone: formData.get('phone').trim() || null,
+        position: formData.get('position').trim() || null
+      };
+      
+      if (!payload.fullName) {
+        errorEl.textContent = 'Поле "ФИО" обязательно';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      
+      errorEl.classList.add('hidden');
+      
+      try {
+        const response = await authFetch('/api/workers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Ошибка: ${response.status}`);
+        }
+
+        document.getElementById('modalRoot').innerHTML = '';
+        await load();
+      } catch (error) {
+        console.error('Ошибка добавления:', error);
+        errorEl.textContent = 'Ошибка при добавлении: ' + error.message;
+        errorEl.classList.remove('hidden');
+      }
+    }
+
+    async function load() {
+      workers = await fetchWorkers();
+      renderWorkers(workers);
+    }
+
+    function escapeHtml(text) {
+      if (text === null || text === undefined) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
