@@ -8,62 +8,14 @@ import { startOfDay } from './dateUtils'
 import { comparePassword, generateToken, verifyToken } from './auth'
 import * as ExcelJS from 'exceljs'
 import * as fs from 'fs'
+import { authenticateToken, apiAuth } from './middleware/auth'
+import { authorizeRole, authorizePermission } from './middleware/permissions'
 
 export const app = express()
 app.use(cors())
 app.use(express.json())
+app.use('/api', apiAuth)
 
-const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers['authorization']
-  const token = authHeader && (authHeader as string).split(' ')[1]
-
-  if (token == null) return res.sendStatus(401)
-
-  const payload = verifyToken(token as string) 
-  if (!payload) return res.sendStatus(403);
-
-  (req as any).authUser = payload 
-  next()
-}
-
-// allow public endpoints (e.g. /api/login) to bypass auth; protect all other /api routes
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  const publicPaths = ['/login'] // add more public API paths here if needed
-  if (publicPaths.includes(req.path)) return next()
-  return authenticateToken(req, res, next)
-})
-
-async function getDbUserFromReq(req: Request) {
-  const authUser = (req as any).authUser
-  if (!authUser || !authUser.id) return null
-  const dbUser = await prisma.user.findUnique({ where: { id: Number(authUser.id) } })
-  return dbUser
-}
-
-const authorizePermission = (permission: string) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const dbUser = await getDbUserFromReq(req)
-    if (!dbUser) return res.sendStatus(403)
-
-    if (dbUser.username === 'axelerator') return next()
-    if (dbUser.role === 'admin') return next()
-
-    const perms: any = dbUser.permissions || {}
-    if (permission === 'inventory:transact') {
-      if (dbUser.role === 'worker') {
-        if (perms && perms['inventory:transact'] === false) {
-          return res.status(403).json({ error: 'Forbidden: permission denied' })
-        } else {
-          return next()
-        }
-      }
-    }
-
-    if (perms && perms[permission]) return next()
-
-    return res.status(403).json({ error: 'Forbidden: insufficient permissions' })
-  }
-}
 
 app.post('/api/login', async (req: Request, res: Response) => {
   const { username, password } = req.body
@@ -96,30 +48,6 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
   }
 }))
 
-const authorizeRole = (allowedRoles: string[]) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const authHeader = req.headers['authorization']
-    const token = authHeader && (authHeader as string).split(' ')[1]
-    
-    if (!token) return res.sendStatus(401)
-    
-    const user = verifyToken(token as string)
-    if (!user) return res.sendStatus(403)
-    
-    const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
-    if (!dbUser) return res.sendStatus(403)
-    
-    if (dbUser.username === 'axelerator') {
-      return next()
-    }
-    
-    if (!allowedRoles.includes(dbUser.role)) {
-      return res.status(403).json({ error: 'Forbidden: insufficient role' })
-    }
-    
-    next()
-  }
-}
 
 app.get('/api/me', authenticateToken, async (req: Request, res: Response) => {
   // use attached authUser instead of re-parsing token
