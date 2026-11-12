@@ -1,5 +1,8 @@
 node_modules
 dist
 prisma/dev.db
-.env
+prisma/dev.db.bak
+.env*
 backup.sql
+coverage/
+*.log
