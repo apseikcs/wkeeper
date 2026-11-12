@@ -1,7 +1,7 @@
 import * as jwt from 'jsonwebtoken'
 import * as bcrypt from 'bcryptjs'
+import { JWT_SECRET } from './config'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-that-is-long'
 const SALT_ROUNDS = 10
 
 export async function hashPassword(password: string): Promise<string> {
