@@ -1,0 +1,182 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`route manifest (must stay identical across refactors) > has the committed set of (method, path) pairs 1`] = `
+[
+  {
+    "method": "DELETE",
+    "path": "/api/locations/:id",
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/products/:id",
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/suppliers/:id",
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/tools/:id",
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/transactions/:id/items/:itemId",
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/workers/:id",
+  },
+  {
+    "method": "GET",
+    "path": "/api/locations",
+  },
+  {
+    "method": "GET",
+    "path": "/api/me",
+  },
+  {
+    "method": "GET",
+    "path": "/api/products",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/consumption-forecast",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/destination-stats",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/export",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/inventory",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/low-stock",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/supplier-stats",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/top-products",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/transactions",
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/worker-performance",
+  },
+  {
+    "method": "GET",
+    "path": "/api/search",
+  },
+  {
+    "method": "GET",
+    "path": "/api/stats",
+  },
+  {
+    "method": "GET",
+    "path": "/api/suppliers",
+  },
+  {
+    "method": "GET",
+    "path": "/api/tools",
+  },
+  {
+    "method": "GET",
+    "path": "/api/transactions",
+  },
+  {
+    "method": "GET",
+    "path": "/api/transactions/recent",
+  },
+  {
+    "method": "GET",
+    "path": "/api/workers",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/locations/:id",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/products/:id",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/suppliers/:id",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/tools/:id",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/transactions/:id",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/transactions/:id/items/:itemId",
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/workers/:id",
+  },
+  {
+    "method": "POST",
+    "path": "/api/locations",
+  },
+  {
+    "method": "POST",
+    "path": "/api/login",
+  },
+  {
+    "method": "POST",
+    "path": "/api/products",
+  },
+  {
+    "method": "POST",
+    "path": "/api/products/:id/adjust",
+  },
+  {
+    "method": "POST",
+    "path": "/api/suppliers",
+  },
+  {
+    "method": "POST",
+    "path": "/api/tools",
+  },
+  {
+    "method": "POST",
+    "path": "/api/transactions",
+  },
+  {
+    "method": "POST",
+    "path": "/api/transactions/:id/items",
+  },
+  {
+    "method": "POST",
+    "path": "/api/transactions/bulk-adjust",
+  },
+  {
+    "method": "POST",
+    "path": "/api/workers",
+  },
+  {
+    "method": "POST",
+    "path": "/api/workers/:workerId/assignTool/:toolId",
+  },
+  {
+    "method": "POST",
+    "path": "/api/workers/:workerId/unassignTool/:toolId",
+  },
+]
+`;
