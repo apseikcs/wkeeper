@@ -1,0 +1,586 @@
+import { Router } from 'express'
+import type { Request, Response } from 'express'
+import { prisma } from '../prisma'
+import { authorizePermission } from '../middleware/permissions'
+
+const router = Router()
+router.get('/api/transactions/recent', async (req: Request, res: Response) => {
+  try {
+    const transactions = await prisma.transaction.findMany({
+      take: 5,
+      orderBy: { date: 'desc' },
+      include: {
+        items: {
+          include: { product: { select: { id: true, name: true } } }
+        },
+        worker: { select: { id: true, fullName: true } },
+        supplier: { select: { id: true, name: true } },
+        destination: { select: { id: true, name: true } },
+        author: { select: { id: true, username: true } }
+      }
+    })
+
+    const items = transactions.flatMap(t => 
+      t.items.map(item => ({
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        productId: item.productId,
+        productName: item.productName,
+        delta: item.delta,
+        supplierId: t.supplierId,
+        supplierName: t.supplierName || t.supplier?.name,
+        destinationId: t.destinationId,
+        destinationName: t.destinationName || t.destination?.name,
+        workerId: t.workerId,
+        workerUsername: null,
+        workerName: t.worker?.fullName || null,
+        authorUsername: t.author?.username || null,
+        note: t.note,
+        product: item.product,
+        worker: t.worker,
+        supplier: t.supplier,
+        destination: t.destination
+      }))
+    )
+
+    res.json(items)
+  } catch (e) {
+    console.error('failed to fetch recent transactions', e)
+    res.status(500).json({ error: 'failed to fetch recent transactions' })
+  }
+})
+
+router.get('/api/transactions', async (req: Request, res: Response) => {
+  const sort = String(req.query.sort || 'date_desc')
+  const productId = req.query.productId ? Number(req.query.productId) : undefined
+  const searchProduct = req.query.searchProduct ? String(req.query.searchProduct) : undefined
+  const entityType = req.query.entityType ? String(req.query.entityType) : undefined
+  const entityId = req.query.entityId ? Number(req.query.entityId) : undefined
+  const search = req.query.search ? String(req.query.search) : undefined
+  const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1
+  const limit = req.query.limit ? Math.max(1, Number(req.query.limit)) : 200
+
+  const where: any = {}
+  let productFilter: number[] | undefined = undefined
+
+  if (productId) {
+    productFilter = [productId]
+  } else if (searchProduct) {
+    const q = `%${String(searchProduct).replace(/%/g, '\\%')}%`
+    const rows: Array<{ id: number }> = await prisma.$queryRaw`
+      SELECT id FROM product
+      WHERE lower(name) LIKE lower(${q})
+    `
+    productFilter = rows.map(r => r.id)
+    if (productFilter.length === 0) {
+      return res.json({ page, limit, items: [] })
+    }
+  }
+
+  if (entityType && entityId) {
+    if (entityType === 'product') productFilter = [entityId]
+    if (entityType === 'supplier') where.supplierId = entityId
+    if (entityType === 'destination') where.destinationId = entityId
+    if (entityType === 'worker') where.workerId = entityId
+  } else if (search) {
+    const like = `%${search.replace(/%/g, '\\%')}%`
+    const [prodIds, supIds, locIds, workerIds] = await Promise.all([
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM product WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM supplier WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM location WHERE lower(name) LIKE lower(${like})`,
+      prisma.$queryRaw<Array<{id:number}>>`SELECT id FROM worker WHERE lower("fullName") LIKE lower(${like})`
+    ])
+    const anyFilter: any[] = []
+    if (prodIds.length) productFilter = prodIds.map(r => r.id)
+    if (supIds.length) anyFilter.push({ supplierId: { in: supIds.map(r=>r.id) } })
+    if (locIds.length) anyFilter.push({ destinationId: { in: locIds.map(r=>r.id) } })
+    if (workerIds.length) anyFilter.push({ workerId: { in: workerIds.map(r=>r.id) } })
+    if (anyFilter.length) {
+      where.OR = anyFilter
+    } else if (!productFilter || productFilter.length === 0) {
+      return res.json({ page, limit, items: [] })
+    }
+  }
+
+  let transactionIds: number[] | undefined = undefined
+  if (productFilter && productFilter.length > 0) {
+    const items = await prisma.transactionItem.findMany({
+      where: { productId: { in: productFilter } },
+      select: { transactionId: true },
+      distinct: ['transactionId']
+    })
+    transactionIds = items.map(i => i.transactionId)
+    if (transactionIds.length === 0) {
+      return res.json({ page, limit, items: [] })
+    }
+    where.id = { in: transactionIds }
+  }
+
+  let orderBy: any = {}
+  switch (sort) {
+    case 'date_asc': orderBy = { date: 'asc' }; break
+    case 'date_desc': orderBy = { date: 'desc' }; break
+    case 'worker_asc': orderBy = { worker: { fullName: 'asc' } }; break
+    case 'worker_desc': orderBy = { worker: { fullName: 'desc' } }; break
+    case 'type_asc': orderBy = { type: 'asc' }; break
+    case 'type_desc': orderBy = { type: 'desc' }; break
+    default: orderBy = { date: 'desc' }
+  }
+
+  // Count total transactions matching filter for pagination
+  const totalTransactions = await prisma.transaction.count({ where })
+
+  const transactions = await prisma.transaction.findMany({
+    where,
+    include: {
+      items: {
+        include: { product: { select: { id: true, name: true } } }
+      },
+      worker: { select: { id: true, fullName: true } },
+      supplier: { select: { id: true, name: true } },
+      destination: { select: { id: true, name: true } },
+      author: { select: { id: true, username: true } }
+    },
+    orderBy,
+    skip: (page - 1) * limit,
+    take: limit
+  })
+
+  const flattenedItems = transactions.flatMap(t => 
+    t.items.map(item => ({
+      id: t.id,
+      date: t.date,
+      type: t.type,
+      productId: item.productId,
+      productName: item.productName,
+      delta: item.delta,
+      supplierId: t.supplierId,
+      supplierName: t.supplierName || t.supplier?.name,
+      destinationId: t.destinationId,
+      destinationName: t.destinationName || t.destination?.name,
+      workerId: t.workerId,
+      workerUsername: null,
+      workerName: t.worker?.fullName || null,
+      authorUsername: t.author?.username || null,
+      note: t.note,
+      product: item.product,
+      worker: t.worker
+    }))
+  )
+
+  let sortedItems = flattenedItems
+  if (sort === 'product_asc') {
+    sortedItems = flattenedItems.sort((a, b) => (a.productName || '').localeCompare(b.productName || ''))
+  } else if (sort === 'product_desc') {
+    sortedItems = flattenedItems.sort((a, b) => (b.productName || '').localeCompare(a.productName || ''))
+  } else if (sort === 'quantity_asc') {
+    sortedItems = flattenedItems.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta))
+  } else if (sort === 'quantity_desc') {
+    sortedItems = flattenedItems.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  }
+
+  res.json({ page, limit, total: totalTransactions, items: sortedItems })
+})
+
+router.patch('/api/transactions/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  const { note } = req.body
+  try {
+    const t = await prisma.transaction.update({ where: { id }, data: { note: note ?? null } })
+    res.json(t)
+  } catch (e) {
+    res.status(400).json({ error: 'failed to update note' })
+  }
+})
+
+router.post('/api/transactions/bulk-adjust', authorizePermission('inventory:transact'), async (req: Request, res: Response) => {
+  const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
+  if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+
+  const parsedItems = items.map((it: any) => ({
+    productId: Number(it.productId),
+    delta: Number(it.delta)
+  }));
+
+  for (const it of parsedItems) {
+    if (!Number.isInteger(it.productId) || it.productId <= 0) return res.status(400).json({ error: 'invalid productId in items' });
+    if (!Number.isInteger(it.delta) || it.delta <= 0) return res.status(400).json({ error: 'each delta must be positive integer' });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const productIds = Array.from(new Set(parsedItems.map(p => p.productId)));
+      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const prodMap: Record<number, any> = {};
+      products.forEach(p => prodMap[p.id] = p);
+
+      for (const id of productIds) {
+        if (!prodMap[id]) throw new Error(`product not found: ${id}`);
+      }
+
+      let supplierName: string | undefined = undefined;
+      let destinationName: string | undefined = undefined;
+      if (supplierId) {
+        const s = await tx.supplier.findUnique({ where: { id: Number(supplierId) } });
+        if (!s) throw new Error('supplier not found');
+        supplierName = s.name;
+      }
+      if (destinationId) {
+        const d = await tx.location.findUnique({ where: { id: Number(destinationId) } });
+        if (!d) throw new Error('destination not found');
+        destinationName = d.name;
+      }
+      if (workerId) {
+        const w = await tx.worker.findUnique({ where: { id: Number(workerId) } });
+        if (!w) throw new Error('worker not found');
+      }
+
+      const deltasPerProduct: Record<number, number> = {};
+      parsedItems.forEach(it => {
+        const sign = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        deltasPerProduct[it.productId] = (deltasPerProduct[it.productId] || 0) + sign;
+      });
+
+      // We'll rely on atomic increments when applying changes below; initial checks were done
+
+      const authUser = (req as any).authUser
+      const tData: any = {
+        type,
+        date: date ? new Date(date) : undefined,
+        supplierName,
+        destinationName,
+        supplierId: supplierId ? Number(supplierId) : undefined,
+        destinationId: destinationId ? Number(destinationId) : undefined,
+        workerId: workerId ? Number(workerId) : undefined,
+        note: note ? String(note).trim() : undefined,
+        authorId: authUser?.id ? Number(authUser.id) : undefined
+      };
+      const t = await tx.transaction.create({ data: tData });
+
+      const createdItems: any[] = [];
+      for (const it of parsedItems) {
+        const product = prodMap[it.productId];
+        const numericDelta = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        
+        const item = await tx.transactionItem.create({
+          data: {
+            transactionId: t.id,
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            delta: numericDelta
+          }
+        });
+        createdItems.push(item);
+      }
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const totalDelta = deltasPerProduct[pid];
+        const updated = await tx.product.update({
+          where: { id: pid },
+          data: { quantity: { increment: totalDelta } },
+          select: { quantity: true, name: true }
+        });
+        if (updated.quantity < 0) throw new Error(`not enough stock for product ${updated.name} (ID: ${pid})`);
+        if (updated.quantity > 65535) throw new Error(`exceeds max stock 65535 for product ${updated.name} (ID: ${pid})`);
+      }
+
+      return { transaction: t, items: createdItems };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('bulk-adjust error', err);
+    if (err.message && err.message.startsWith('not enough')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('exceeds')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('product not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message && (err.message.includes('supplier not found') || err.message.includes('destination not found') || err.message.includes('worker not found'))) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'failed to perform bulk adjust' });
+  }
+});
+
+router.post('/api/transactions', authorizePermission('inventory:transact'), async (req: Request, res: Response) => {
+  const { type, items, supplierId, destinationId, workerId, date, note } = req.body;
+  if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be in|out' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+
+  const parsedItems = items.map((it: any) => ({
+    productId: Number(it.productId),
+    delta: Number(it.delta)
+  }));
+
+  for (const it of parsedItems) {
+    if (!Number.isInteger(it.productId) || it.productId <= 0) return res.status(400).json({ error: 'invalid productId in items' });
+    if (!Number.isInteger(it.delta) || it.delta <= 0) return res.status(400).json({ error: 'each delta must be positive integer' });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const productIds = Array.from(new Set(parsedItems.map(p => p.productId)));
+      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const prodMap: Record<number, any> = {};
+      products.forEach(p => prodMap[p.id] = p);
+
+      for (const id of productIds) {
+        if (!prodMap[id]) throw new Error(`product not found: ${id}`);
+      }
+
+      let supplierName: string | undefined = undefined;
+      let destinationName: string | undefined = undefined;
+      if (supplierId) {
+        const s = await tx.supplier.findUnique({ where: { id: Number(supplierId) } });
+        if (!s) throw new Error('supplier not found');
+        supplierName = s.name;
+      }
+      if (destinationId) {
+        const d = await tx.location.findUnique({ where: { id: Number(destinationId) } });
+        if (!d) throw new Error('destination not found');
+        destinationName = d.name;
+      }
+      if (workerId) {
+        const w = await tx.worker.findUnique({ where: { id: Number(workerId) } });
+        if (!w) throw new Error('worker not found');
+      }
+
+      const deltasPerProduct: Record<number, number> = {};
+      parsedItems.forEach(it => {
+        const sign = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        deltasPerProduct[it.productId] = (deltasPerProduct[it.productId] || 0) + sign;
+      });
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const p = prodMap[pid];
+        const newQty = p.quantity + deltasPerProduct[pid];
+        if (newQty < 0) throw new Error(`not enough stock for product ${p.name} (ID: ${pid})`);
+        if (newQty > 65535) throw new Error(`exceeds max stock 65535 for product ${p.name} (ID: ${pid})`);
+      }
+
+      const authUser = (req as any).authUser
+      const tData: any = {
+        type,
+        date: date ? new Date(date) : undefined,
+        supplierName,
+        destinationName,
+        supplierId: supplierId ? Number(supplierId) : undefined,
+        destinationId: destinationId ? Number(destinationId) : undefined,
+        workerId: workerId ? Number(workerId) : undefined,
+        note: note ? String(note).trim() : undefined,
+        authorId: authUser?.id ? Number(authUser.id) : undefined
+      };
+      const t = await tx.transaction.create({ data: tData });
+
+      const createdItems: any[] = [];
+      for (const it of parsedItems) {
+        const product = prodMap[it.productId];
+        const numericDelta = type === 'out' ? -Math.abs(it.delta) : Math.abs(it.delta);
+        
+        const item = await tx.transactionItem.create({
+          data: {
+            transactionId: t.id,
+            productId: product.id,
+            productName: product.name,
+            productSku: product.sku,
+            delta: numericDelta
+          }
+        });
+        createdItems.push(item);
+      }
+
+      for (const pidStr of Object.keys(deltasPerProduct)) {
+        const pid = Number(pidStr);
+        const totalDelta = deltasPerProduct[pid];
+        const updated = await tx.product.update({
+          where: { id: pid },
+          data: { quantity: { increment: totalDelta } },
+          select: { quantity: true, name: true }
+        });
+        if (updated.quantity < 0) throw new Error(`not enough stock for product ${updated.name} (ID: ${pid})`);
+        if (updated.quantity > 65535) throw new Error(`exceeds max stock 65535 for product ${updated.name} (ID: ${pid})`);
+      }
+
+      return { transaction: t, items: createdItems };
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('create transaction error', err);
+    if (err.message && err.message.startsWith('not enough')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('exceeds')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('product not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message && (err.message.includes('supplier not found') || err.message.includes('destination not found') || err.message.includes('worker not found'))) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'failed to create transaction' });
+  }
+});
+
+router.post('/api/transactions/:id/items', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const { productId, delta } = req.body;
+
+  try {
+    const t = await prisma.transaction.findUnique({ where: { id: transactionId } });
+    if (!t) return res.status(404).json({ error: 'transaction not found' });
+
+    const product = await prisma.product.findUnique({ where: { id: Number(productId) } });
+    if (!product) return res.status(404).json({ error: 'product not found' });
+
+    const rawDelta = Number(delta);
+    if (!Number.isInteger(rawDelta) || rawDelta <= 0) {
+      return res.status(400).json({ error: 'delta must be positive integer' });
+    }
+
+    const numericDelta = t.type === 'out' ? -Math.abs(rawDelta) : Math.abs(rawDelta);
+    
+    if (t.type === 'out' && product.quantity + numericDelta < 0) {
+      return res.status(400).json({ error: 'not enough stock' });
+    }
+    if (t.type === 'in' && product.quantity + numericDelta > 65535) {
+      return res.status(400).json({ error: 'exceeds max stock 65535' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.transactionItem.create({
+        data: {
+          transactionId,
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku,
+          delta: numericDelta
+        }
+      });
+
+      const updated = await tx.product.update({
+        where: { id: product.id },
+        data: { quantity: { increment: numericDelta } },
+        select: { quantity: true, name: true }
+      });
+
+      if (updated.quantity < 0) throw new Error('not enough stock')
+      if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
+
+      return item;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
+  }
+});
+
+router.delete('/api/transactions/:id/items/:itemId', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+
+  try {
+    const item = await prisma.transactionItem.findUnique({
+      where: { id: itemId },
+      include: { transaction: true, product: true }
+    });
+
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    if (item.transactionId !== transactionId) {
+      return res.status(400).json({ error: 'item does not belong to this transaction' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (item.product && item.delta !== 0) {
+        const updated = await tx.product.update({
+          where: { id: item.product.id },
+          data: { quantity: { increment: -item.delta } },
+          select: { quantity: true, name: true }
+        });
+        if (updated.quantity < 0) throw new Error('resulting quantity negative')
+        if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
+      }
+
+      const deleted = await tx.transactionItem.delete({ where: { id: itemId } });
+
+      return deleted;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
+  }
+});
+
+router.patch('/api/transactions/:id/items/:itemId', async (req: Request, res: Response) => {
+  const transactionId = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+  const { delta } = req.body;
+
+  try {
+    const item = await prisma.transactionItem.findUnique({
+      where: { id: itemId },
+      include: { transaction: true, product: true }
+    });
+
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    if (item.transactionId !== transactionId) {
+      return res.status(400).json({ error: 'item does not belong to this transaction' });
+    }
+
+    const rawDelta = Number(delta);
+    if (!Number.isInteger(rawDelta) || rawDelta <= 0) {
+      return res.status(400).json({ error: 'delta must be positive integer' });
+    }
+
+    const numericDelta = item.transaction.type === 'out' ? -Math.abs(rawDelta) : Math.abs(rawDelta);
+    const oldDelta = item.delta;
+    const diff = numericDelta - oldDelta;
+
+    if (item.product) {
+      const newQty = item.product.quantity + diff;
+      if (newQty < 0) return res.status(400).json({ error: 'not enough stock' });
+      if (newQty > 65535) return res.status(400).json({ error: 'exceeds max stock' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // re-load the transaction item inside the transaction to avoid races
+      const cur = await tx.transactionItem.findUnique({ where: { id: itemId }, include: { product: true, transaction: true } });
+      if (!cur) throw new Error('item not found')
+
+      const actualDiff = numericDelta - cur.delta;
+      if (cur.product) {
+        const updated = await tx.product.update({
+          where: { id: cur.product.id },
+          data: { quantity: { increment: actualDiff } },
+          select: { quantity: true, name: true }
+        });
+        if (updated.quantity < 0) throw new Error('not enough stock')
+        if (updated.quantity > 65535) throw new Error('exceeds max stock 65535')
+      }
+
+      const updatedItem = await tx.transactionItem.update({ where: { id: itemId }, data: { delta: numericDelta } });
+      return updatedItem;
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'internal error' });
+  }
+});
+
+export { router as transactionsRouter }
