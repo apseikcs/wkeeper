@@ -11,31 +11,13 @@ import * as fs from 'fs'
 import { authenticateToken, apiAuth } from './middleware/auth'
 import { authorizeRole, authorizePermission } from './middleware/permissions'
 
+import { authRouter } from './routes/auth'
 export const app = express()
 app.use(cors())
 app.use(express.json())
 app.use('/api', apiAuth)
 
 
-app.post('/api/login', async (req: Request, res: Response) => {
-  const { username, password } = req.body
-  if (!username || !password) {
-    return res.status(400).json({ error: 'username and password required' })
-  }
-
-  const user = await prisma.user.findUnique({ where: { username } })
-  if (!user) {
-    return res.status(401).json({ error: 'invalid credentials' })
-  }
-
-  const passwordValid = await comparePassword(password, user.passwordHash)
-  if (!passwordValid) {
-    return res.status(401).json({ error: 'invalid credentials' })
-  }
-
-  const token = generateToken(user.id, user.username, user.role)
-  res.json({ token })
-})
 
 app.use(express.static(path.join(__dirname, '..', 'frontend')))
 
@@ -49,21 +31,6 @@ app.use('/fonts', express.static(path.join(__dirname, '..', 'fonts'), {
 }))
 
 
-app.get('/api/me', authenticateToken, async (req: Request, res: Response) => {
-  // use attached authUser instead of re-parsing token
-  const authUser = (req as any).authUser
-  if (!authUser) return res.sendStatus(403)
-
-  const dbUser = await prisma.user.findUnique({ where: { id: Number(authUser.id) } })
-  if (!dbUser) return res.sendStatus(404)
-  
-  res.json({
-    id: dbUser.id,
-    username: dbUser.username,
-    role: dbUser.role,
-    permissions: dbUser.permissions
-  })
-})
 
 app.get('/api/stats', async (req: Request, res: Response) => {
   const today = startOfDay(new Date())
@@ -1787,3 +1754,4 @@ app.patch('/api/transactions/:id/items/:itemId', async (req: Request, res: Respo
     res.status(500).json({ error: 'internal error' });
   }
 });
+app.use(authRouter)
